@@ -1,0 +1,1227 @@
+// POS & Checkout Client Module
+const pos = {
+    cart: [],
+    selectedCustomer: null,
+    discountAmount: 0,
+    discountReason: '',
+    activeSession: null,
+
+    async init() {
+        await this.loadActiveSession();
+        this.render();
+        this.bindEvents();
+    },
+
+    async loadActiveSession() {
+        try {
+            const res = await fetch('/api/pos/active-session');
+            const data = await res.json();
+            if (data.success) {
+                this.activeSession = data.data;
+            }
+        } catch (e) {
+            console.error('Failed to load active cash session', e);
+        }
+    },
+
+    render() {
+        const container = document.getElementById('mainContainer');
+        container.innerHTML = `
+            <div class="h-[calc(100vh-100px)] flex flex-col lg:flex-row gap-6">
+                <!-- Left Column: Product Search & Quick Catalog (60%) -->
+                <div class="flex-1 flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm p-4 overflow-hidden">
+                    <!-- Search & Barcode Input Bar -->
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="relative flex-1">
+                            <i data-lucide="scan-barcode" class="w-5 h-5 absolute right-3 top-3 text-slate-400"></i>
+                            <input type="text" id="posSearchInput" placeholder="اسکن بارکد کالا یا جستجوی نام، برند، شید رنگ (مثلاً 120 Artist)... [F2]" 
+                                   class="w-full pl-4 pr-11 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white transition">
+                        </div>
+                        <button onclick="pos.handleBarcodeScan()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 rounded-xl text-sm font-medium flex items-center gap-2 shadow-sm transition">
+                            <i data-lucide="plus" class="w-4 h-4"></i>
+                            <span>افزودن</span>
+                        </button>
+                    </div>
+
+                    <!-- Category Pills -->
+                    <div id="posCategoryPills" class="flex items-center gap-2 pb-3 overflow-x-auto border-b border-slate-100 text-xs">
+                        <button onclick="pos.filterCategory('')" class="px-3 py-1.5 rounded-lg bg-purple-100 text-purple-700 font-bold whitespace-nowrap">همه محصولات</button>
+                    </div>
+
+                    <!-- Products Grid -->
+                    <div id="posProductGrid" class="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 pt-3">
+                        <div class="col-span-full py-12 text-center text-slate-400">در حال بارگذاری محصولات...</div>
+                    </div>
+
+                    <!-- Cross-Sell Recommendation Strip (اگر محصولی در سبد بود) -->
+                    <div id="crossSellStrip" class="mt-3 pt-3 border-t border-slate-100 hidden">
+                        <div class="text-xs font-bold text-purple-800 mb-2 flex items-center gap-1">
+                            <i data-lucide="sparkles" class="w-3.5 h-3.5 text-purple-600"></i>
+                            <span>پیشنهاد مکمل هوشمند سبد (Cross-Sell):</span>
+                        </div>
+                        <div id="crossSellItems" class="flex gap-3 overflow-x-auto pb-1"></div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Cart, Customer & Checkout (40%) -->
+                <div class="w-full lg:w-96 flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm p-4 overflow-hidden">
+                    <!-- Customer Selection Header -->
+                    <div class="pb-3 border-b border-slate-100 flex items-center justify-between">
+                        <div id="selectedCustomerBadge" class="flex items-center gap-2">
+                            <div class="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs">
+                                <i data-lucide="user" class="w-4 h-4"></i>
+                            </div>
+                            <div>
+                                <div class="text-xs font-bold text-slate-800">مشتری گذری</div>
+                                <div class="text-[10px] text-slate-400">فاقد امتیاز باشگاه</div>
+                            </div>
+                        </div>
+                        <button onclick="pos.openCustomerModal()" class="text-xs text-purple-600 hover:text-purple-800 font-medium">
+                            تغییر مشتری
+                        </button>
+                    </div>
+
+                    <!-- Cart Items List -->
+                    <div class="flex-1 overflow-y-auto divide-y divide-slate-100 py-2" id="cartItemList">
+                        <div class="py-16 text-center text-slate-400 flex flex-col items-center gap-2">
+                            <i data-lucide="shopping-bag" class="w-10 h-10 text-slate-300"></i>
+                            <span class="text-sm">سبد خرید خالی است</span>
+                            <span class="text-xs text-slate-400">با کلیک روی کالا یا اسکن بارکد، اقلام اضافه می‌شوند</span>
+                        </div>
+                    </div>
+
+                    <!-- Cart Summary & Calculation -->
+                    <div class="pt-3 border-t border-slate-100 space-y-2 text-xs">
+                        <div class="flex justify-between text-slate-600">
+                            <span>جمع اقلام:</span>
+                            <span id="posSubtotal" class="font-bold">۰ تومان</span>
+                        </div>
+                        <div class="flex justify-between items-center text-slate-600">
+                            <span class="flex items-center gap-1">
+                                <span>تخفیف:</span>
+                                <button onclick="pos.openDiscountModal()" class="text-[10px] text-purple-600 hover:underline">[F8 تنظیم]</button>
+                            </span>
+                            <span id="posDiscount" class="text-rose-600 font-bold">۰ تومان</span>
+                        </div>
+                        <div class="flex justify-between text-base font-bold text-slate-900 pt-2 border-t border-slate-200">
+                            <span>مبلغ قابل پرداخت:</span>
+                            <span id="posTotal" class="text-purple-700 text-lg">۰ تومان</span>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="grid grid-cols-2 gap-2 pt-2">
+                            <button onclick="pos.openCheckoutModal()" class="col-span-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white py-3 rounded-xl font-bold text-sm shadow-md shadow-emerald-100 flex items-center justify-center gap-2 transition">
+                                <i data-lucide="credit-card" class="w-5 h-5"></i>
+                                <span>ثبت و تسویه فاکتور [F4]</span>
+                            </button>
+
+                            <button onclick="pos.saveAsProforma()" class="bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition">
+                                <i data-lucide="file-text" class="w-4 h-4 text-blue-600"></i>
+                                <span>پیش‌فاکتور</span>
+                            </button>
+
+                            <button onclick="pos.saveAsLayaway()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition">
+                                <i data-lucide="bookmark" class="w-4 h-4 text-indigo-600"></i>
+                                <span>رزرو با بیعانه</span>
+                            </button>
+
+                            <button onclick="pos.openExchangeModal()" class="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition">
+                                <i data-lucide="repeat" class="w-4 h-4 text-amber-600"></i>
+                                <span>تعویض کالا</span>
+                            </button>
+
+                            <button onclick="pos.openCloseSessionModal()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition">
+                                <i data-lucide="lock" class="w-4 h-4"></i>
+                                <span>بستن شیفت صندوق</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        lucide.createIcons();
+        this.loadCategoryPills();
+        this.loadProducts();
+    },
+
+    bindEvents() {
+        const searchInput = document.getElementById('posSearchInput');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                this.loadProducts(e.target.value);
+            });
+            searchInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    this.handleBarcodeScan();
+                }
+            });
+        }
+
+        // Global Shortcuts (F2, F4, F8)
+        window.onkeydown = (e) => {
+            if (e.key === 'F2') {
+                e.preventDefault();
+                document.getElementById('posSearchInput')?.focus();
+            } else if (e.key === 'F4') {
+                e.preventDefault();
+                pos.openCheckoutModal();
+            } else if (e.key === 'F8') {
+                e.preventDefault();
+                pos.openDiscountModal();
+            }
+        };
+    },
+
+    async loadProducts(query = '') {
+        try {
+            const res = await fetch(`/api/pos/products?q=${encodeURIComponent(query)}`);
+            const json = await res.json();
+            if (json.success) {
+                this.renderProductGrid(json.data);
+            }
+        } catch (e) {
+            console.error('Error loading products', e);
+        }
+    },
+
+    renderProductGrid(products) {
+        const grid = document.getElementById('posProductGrid');
+        if (!grid) return;
+
+        if (products.length === 0) {
+            grid.innerHTML = '<div class="col-span-full py-12 text-center text-slate-400">کالایی با این مشخصات یافت نشد</div>';
+            return;
+        }
+
+        grid.innerHTML = products.map(p => `
+            <div onclick="pos.addToCart(${JSON.stringify(p).replace(/"/g, '&quot;')})" 
+                 class="group relative bg-white border ${p.total_stock === 0 ? 'border-slate-200 opacity-60' : (p.total_stock < 3 ? 'border-amber-300 bg-amber-50/20' : 'border-slate-200')} hover:border-purple-400 hover:shadow-md rounded-xl p-3 cursor-pointer transition flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between text-[11px] mb-1">
+                        <span class="font-bold text-slate-700">${p.brand_name}</span>
+                        ${p.total_stock === 0 
+                            ? `<span class="text-rose-700 font-bold bg-rose-100 px-1.5 py-0.5 rounded text-[10px]">اتمام موجودی</span>` 
+                            : (p.total_stock < 3 
+                                ? `<span class="text-amber-800 font-bold bg-amber-100 px-1.5 py-0.5 rounded text-[10px] animate-pulse">هشدار کسری: ${p.total_stock} عدد</span>` 
+                                : `<span class="text-slate-500 text-[10px]">موجودی: ${p.total_stock}</span>`)}
+                    </div>
+                    <div class="text-xs font-semibold text-slate-800 group-hover:text-purple-700 line-clamp-2 leading-tight mb-2">
+                        ${p.product_name_fa || p.product_name}
+                    </div>
+                    ${p.shade ? `
+                        <div class="text-[11px] text-slate-600 flex items-center mb-2">
+                            <span class="shade-swatch" style="background-color: ${p.color_hex || '#ccc'}"></span>
+                            <span class="font-medium">${p.shade}</span>
+                        </div>
+                    ` : ''}
+                </div>
+                <div class="pt-2 border-t border-slate-100 flex items-center justify-between">
+                    <span class="text-xs font-bold text-purple-700">${Number(p.selling_price).toLocaleString('fa-IR')} تومان</span>
+                    <span class="w-6 h-6 rounded-lg ${p.total_stock === 0 ? 'bg-slate-100 text-slate-400' : 'bg-purple-50 group-hover:bg-purple-600 group-hover:text-white text-purple-600'} flex items-center justify-center text-xs transition">
+                        +
+                    </span>
+                </div>
+            </div>
+        `).join('');
+    },
+
+    async loadCategoryPills(activeCat = '') {
+        const container = document.getElementById('posCategoryPills');
+        if (!container) return;
+
+        try {
+            const res = await fetch('/api/categories');
+            const json = await res.json();
+            const cats = json.data || [];
+
+            container.innerHTML = `
+                <button onclick="pos.filterCategory('')" class="px-3 py-1.5 rounded-lg ${!activeCat ? 'bg-purple-100 text-purple-700 font-bold' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'} whitespace-nowrap transition">همه محصولات</button>
+                ${cats.map(c => `
+                    <button onclick="pos.filterCategory('${c.name_fa}')" class="px-3 py-1.5 rounded-lg ${activeCat === c.name_fa ? 'bg-purple-100 text-purple-700 font-bold' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'} whitespace-nowrap transition">${c.name_fa}</button>
+                `).join('')}
+            `;
+        } catch (e) {
+            console.error('Error loading category pills', e);
+        }
+    },
+
+    filterCategory(catName) {
+        this.loadCategoryPills(catName);
+        this.loadProducts(catName);
+    },
+
+    async handleBarcodeScan() {
+        const input = document.getElementById('posSearchInput');
+        const val = input.value.trim();
+        if (!val) return;
+
+        try {
+            const res = await fetch(`/api/pos/barcode/${encodeURIComponent(val)}`);
+            const json = await res.json();
+            if (json.success && json.data) {
+                this.addToCart(json.data);
+                input.value = '';
+                app.showNotification(`کالای ${json.data.product_name_fa} اضافه شد`, 'success');
+            } else {
+                // If not exact barcode, filter list
+                this.loadProducts(val);
+            }
+        } catch (e) {
+            this.loadProducts(val);
+        }
+    },
+
+    addToCart(product) {
+        if (product.total_stock <= 0) {
+            app.showNotification('این کالا در انبار ناموجود است!', 'error');
+            return;
+        }
+
+        const existing = this.cart.find(item => item.variantId === product.variant_id);
+        if (existing) {
+            if (existing.quantity + 1 > product.total_stock) {
+                app.showNotification(`حداکثر موجودی قابل سفارش (${product.total_stock} عدد) رعایت شده است.`, 'warning');
+                return;
+            }
+            existing.quantity++;
+        } else {
+            this.cart.push({
+                variantId: product.variant_id,
+                name: product.product_name_fa || product.product_name,
+                brand: product.brand_name,
+                shade: product.shade,
+                colorHex: product.color_hex,
+                unitPrice: Number(product.selling_price),
+                maxStock: product.total_stock,
+                quantity: 1
+            });
+        }
+
+        this.renderCart();
+        this.fetchCrossSellRecommendations();
+    },
+
+    updateCartQuantity(variantId, delta) {
+        const item = this.cart.find(i => i.variantId === variantId);
+        if (!item) return;
+
+        item.quantity += delta;
+        if (item.quantity <= 0) {
+            this.cart = this.cart.filter(i => i.variantId !== variantId);
+        } else if (item.quantity > item.maxStock) {
+            item.quantity = item.maxStock;
+            app.showNotification('حداکثر موجودی انبار رعایت شد', 'warning');
+        }
+
+        this.renderCart();
+        this.fetchCrossSellRecommendations();
+    },
+
+    renderCart() {
+        const list = document.getElementById('cartItemList');
+        if (!list) return;
+
+        if (this.cart.length === 0) {
+            list.innerHTML = `
+                <div class="py-16 text-center text-slate-400 flex flex-col items-center gap-2">
+                    <i data-lucide="shopping-bag" class="w-10 h-10 text-slate-300"></i>
+                    <span class="text-sm">سبد خرید خالی است</span>
+                    <span class="text-xs text-slate-400">با کلیک روی کالا یا اسکن بارکد، اقلام اضافه می‌شوند</span>
+                </div>
+            `;
+            this.updateTotals();
+            lucide.createIcons();
+            return;
+        }
+
+        list.innerHTML = this.cart.map(item => `
+            <div class="py-2.5 flex items-center justify-between gap-3 text-xs">
+                <div class="flex-1 min-w-0">
+                    <div class="font-bold text-slate-800 truncate">${item.name}</div>
+                    <div class="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
+                        <span>${item.brand}</span>
+                        ${item.shade ? `
+                            <span>•</span>
+                            <span class="shade-swatch !w-2.5 !h-2.5" style="background-color: ${item.colorHex || '#ccc'}"></span>
+                            <span>${item.shade}</span>
+                        ` : ''}
+                    </div>
+                    <div class="text-[11px] text-purple-700 font-semibold mt-1">
+                        ${(item.unitPrice * item.quantity).toLocaleString('fa-IR')} تومان
+                    </div>
+                </div>
+
+                <!-- Quantity Controls -->
+                <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+                    <button onclick="pos.updateCartQuantity(${item.variantId}, -1)" class="w-7 h-7 flex items-center justify-center text-slate-600 hover:bg-slate-200 transition">
+                        -
+                    </button>
+                    <span class="w-8 text-center font-bold text-slate-800">${item.quantity}</span>
+                    <button onclick="pos.updateCartQuantity(${item.variantId}, 1)" class="w-7 h-7 flex items-center justify-center text-slate-600 hover:bg-slate-200 transition">
+                        +
+                    </button>
+                </div>
+            </div>
+        `).join('');
+
+        this.updateTotals();
+        lucide.createIcons();
+    },
+
+    updateTotals() {
+        const subtotal = this.cart.reduce((sum, i) => sum + (i.unitPrice * i.quantity), 0);
+        const total = Math.max(0, subtotal - this.discountAmount);
+
+        document.getElementById('posSubtotal').innerText = `${subtotal.toLocaleString('fa-IR')} تومان`;
+        document.getElementById('posDiscount').innerText = `${this.discountAmount.toLocaleString('fa-IR')} تومان`;
+        document.getElementById('posTotal').innerText = `${total.toLocaleString('fa-IR')} تومان`;
+    },
+
+    async fetchCrossSellRecommendations() {
+        const strip = document.getElementById('crossSellStrip');
+        const container = document.getElementById('crossSellItems');
+        if (!strip || !container) return;
+
+        if (this.cart.length === 0) {
+            strip.classList.add('hidden');
+            return;
+        }
+
+        try {
+            const variantIds = this.cart.map(i => i.variantId);
+            const res = await fetch('/api/pos/recommendations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ variantIds })
+            });
+            const json = await res.json();
+            if (json.success && json.data.length > 0) {
+                strip.classList.remove('hidden');
+                container.innerHTML = json.data.map(r => `
+                    <div onclick="pos.addToCart(${JSON.stringify({
+                        variant_id: r.variant_id,
+                        product_name_fa: r.product_name,
+                        brand_name: r.brand_name,
+                        shade: r.shade,
+                        selling_price: r.selling_price,
+                        total_stock: 99
+                    }).replace(/"/g, '&quot;')})" class="flex-shrink-0 bg-purple-50 border border-purple-200 hover:border-purple-400 p-2 rounded-xl cursor-pointer flex items-center gap-2">
+                        <div class="text-right">
+                            <div class="text-[11px] font-bold text-slate-800">${r.product_name}</div>
+                            <div class="text-[10px] text-purple-700">${Number(r.selling_price).toLocaleString('fa-IR')} تومان</div>
+                        </div>
+                        <span class="w-5 h-5 rounded-full bg-purple-600 text-white flex items-center justify-center text-xs">+</span>
+                    </div>
+                `).join('');
+            } else {
+                strip.classList.add('hidden');
+            }
+        } catch (e) {
+            strip.classList.add('hidden');
+        }
+    },
+
+    // Customer Selection Modal
+    async openCustomerModal() {
+        try {
+            const res = await fetch('/api/crm/customers');
+            const json = await res.json();
+            this.allCustomers = json.data || [];
+
+            app.openModal(`
+                <div class="space-y-4 text-xs">
+                    <div class="flex items-center justify-between pb-2 border-b border-slate-100">
+                        <div>
+                            <h3 class="text-base font-bold text-slate-900 flex items-center gap-1.5">
+                                <i data-lucide="user-check" class="w-5 h-5 text-purple-600"></i>
+                                <span>انتخاب یا جستجوی مشتری (باشگاه مشتریان و تخفیف)</span>
+                            </h3>
+                            <p class="text-[11px] text-slate-500 mt-0.5">جستجو بر اساس نام، شماره همراه، کد مشتری یا ثبت سریع مشتری جدید</p>
+                        </div>
+                    </div>
+
+                    <!-- Search Input & Quick Add Button -->
+                    <div class="flex gap-2">
+                        <div class="relative flex-1">
+                            <input type="text" id="custSearchInput" oninput="pos.filterCustomers(this.value)" 
+                                   placeholder="🔍 تایپ کنید: نام مشتری، شماره موبایل یا کد..." 
+                                   class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:border-purple-600 outline-none transition">
+                        </div>
+                        <button onclick="pos.toggleQuickCustomerForm()" class="px-3 py-2 bg-purple-100 hover:bg-purple-200 text-purple-800 rounded-xl font-bold flex items-center gap-1 transition shrink-0">
+                            <i data-lucide="user-plus" class="w-4 h-4"></i>
+                            <span>+ مشتری جدید</span>
+                        </button>
+                    </div>
+
+                    <!-- Quick Register Collapsible Form -->
+                    <div id="quickCustForm" class="hidden p-3 bg-purple-50 rounded-xl border border-purple-200 space-y-2.5">
+                        <div class="font-bold text-purple-900 text-xs">ثبت سریع مشتری جدید در باشگاه:</div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <input type="text" id="qcName" placeholder="نام و نام خانوادگی *" class="p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+                            <input type="text" id="qcMobile" placeholder="شماره همراه (۰۹...) *" class="p-2 bg-white border border-slate-200 rounded-lg text-xs font-mono">
+                        </div>
+                        <div class="flex justify-end gap-2 pt-1">
+                            <button onclick="pos.toggleQuickCustomerForm()" class="px-3 py-1.5 text-slate-500 hover:bg-white rounded-lg">انصراف</button>
+                            <button onclick="pos.saveQuickCustomer()" class="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold">ذخیره و انتخاب در فاکتور</button>
+                        </div>
+                    </div>
+
+                    <!-- Customers List Container -->
+                    <div class="space-y-2 max-h-72 overflow-y-auto divide-y divide-slate-100" id="custModalList">
+                        ${this.renderCustomerRows(this.allCustomers)}
+                    </div>
+
+                    <div class="flex justify-end pt-2 border-t border-slate-100">
+                        <button onclick="app.closeModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl">بستن پنجره</button>
+                    </div>
+                </div>
+            `);
+            lucide.createIcons();
+            setTimeout(() => document.getElementById('custSearchInput')?.focus(), 150);
+        } catch (e) {
+            app.showNotification('خطا در دریافت لیست مشتریان', 'error');
+        }
+    },
+
+    renderCustomerRows(customers) {
+        let html = `
+            <div onclick="pos.selectCustomer(null)" class="p-2.5 hover:bg-purple-50 rounded-xl cursor-pointer flex items-center justify-between border border-transparent hover:border-purple-200 transition">
+                <div>
+                    <div class="font-bold text-xs text-slate-800">👤 مشتری عادی / گذری (Walk-in)</div>
+                    <div class="text-[10px] text-slate-400">بدون نیاز به ثبت شماره، کیف پول و امتیاز باشگاه</div>
+                </div>
+                <span class="text-[10px] bg-slate-100 text-slate-600 px-2 py-1 rounded font-bold">انتخاب گذری</span>
+            </div>
+        `;
+
+        if (!customers || customers.length === 0) {
+            html += `<div class="py-8 text-center text-slate-400 text-xs">مشتری با این مشخصات یافت نشد</div>`;
+            return html;
+        }
+
+        html += customers.map(c => `
+            <div onclick="pos.selectCustomer(${JSON.stringify(c).replace(/"/g, '&quot;')})" class="p-2.5 hover:bg-purple-50 rounded-xl cursor-pointer flex items-center justify-between transition">
+                <div>
+                    <div class="font-bold text-xs text-slate-800 flex items-center gap-2">
+                        <span>${c.full_name}</span>
+                        <span class="text-[9px] font-bold px-1.5 py-0.5 rounded-full ${c.loyalty_tier === 'VIP' ? 'bg-amber-100 text-amber-800' : 'bg-purple-100 text-purple-700'}">${c.loyalty_tier}</span>
+                    </div>
+                    <div class="text-[11px] text-slate-500 mt-0.5">موبایل: <span class="font-mono font-bold">${c.mobile}</span> | کیف پول: ${Number(c.wallet_balance).toLocaleString('fa-IR')} تومان</div>
+                </div>
+                <div class="text-left">
+                    <div class="text-xs font-bold text-purple-700 font-mono">${c.loyalty_points} امتیاز</div>
+                    <div class="text-[10px] text-slate-400">${c.rfm_segment || ''}</div>
+                </div>
+            </div>
+        `).join('');
+
+        return html;
+    },
+
+    filterCustomers(query) {
+        const q = (query || '').trim().toLowerCase();
+        if (!this.allCustomers) return;
+
+        const filtered = this.allCustomers.filter(c => {
+            const nameMatch = (c.full_name || '').toLowerCase().includes(q);
+            const mobileMatch = (c.mobile || '').includes(q);
+            const codeMatch = (c.customer_code || '').toLowerCase().includes(q);
+            return nameMatch || mobileMatch || codeMatch;
+        });
+
+        const listEl = document.getElementById('custModalList');
+        if (listEl) {
+            listEl.innerHTML = this.renderCustomerRows(filtered);
+            lucide.createIcons();
+        }
+    },
+
+    toggleQuickCustomerForm() {
+        const f = document.getElementById('quickCustForm');
+        if (f) {
+            f.classList.toggle('hidden');
+            if (!f.classList.contains('hidden')) {
+                document.getElementById('qcName')?.focus();
+            }
+        }
+    },
+
+    async saveQuickCustomer() {
+        const fullName = document.getElementById('qcName')?.value.trim();
+        const mobile = document.getElementById('qcMobile')?.value.trim();
+
+        if (!fullName || !mobile) {
+            app.showNotification('لطفاً نام و شماره موبایل را وارد نمایید.', 'warning');
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/crm/customers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fullName, mobile })
+            });
+            const json = await res.json();
+            if (json.success) {
+                app.showNotification(`مشتری «${fullName}» با موفقیت ثبت و انتخاب شد.`, 'success');
+                const newCust = {
+                    id: json.data.customerId,
+                    full_name: fullName,
+                    mobile: mobile,
+                    loyalty_tier: 'BRONZE',
+                    loyalty_points: 0,
+                    wallet_balance: 0,
+                    rfm_segment: 'جدید'
+                };
+                if (this.allCustomers) this.allCustomers.unshift(newCust);
+                this.selectCustomer(newCust);
+            } else {
+                app.showNotification(json.error || 'خطا در ثبت مشتری', 'error');
+            }
+        } catch (e) {
+            app.showNotification('خطای شبکه در ارتباط با سرور', 'error');
+        }
+    },
+
+    selectCustomer(cust) {
+        this.selectedCustomer = cust;
+        const badge = document.getElementById('selectedCustomerBadge');
+        if (cust) {
+            badge.innerHTML = `
+                <div class="w-8 h-8 rounded-full bg-purple-600 text-white flex items-center justify-center font-bold text-xs">
+                    ${cust.full_name.slice(0, 1)}
+                </div>
+                <div>
+                    <div class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <span>${cust.full_name}</span>
+                        <span class="text-[9px] bg-purple-100 text-purple-700 font-bold px-1.5 py-0.2 rounded">${cust.loyalty_tier}</span>
+                    </div>
+                    <div class="text-[10px] text-emerald-600">کیف پول: ${Number(cust.wallet_balance).toLocaleString('fa-IR')} ت | امتیاز: ${cust.loyalty_points}</div>
+                </div>
+            `;
+        } else {
+            badge.innerHTML = `
+                <div class="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs">
+                    <i data-lucide="user" class="w-4 h-4"></i>
+                </div>
+                <div>
+                    <div class="text-xs font-bold text-slate-800">مشتری گذری</div>
+                    <div class="text-[10px] text-slate-400">فاقد امتیاز باشگاه</div>
+                </div>
+            `;
+        }
+        app.closeModal();
+        lucide.createIcons();
+    },
+
+    openDiscountModal() {
+        app.openModal(`
+            <h3 class="text-base font-bold text-slate-900 mb-3">اعمال تخفیف روی فاکتور</h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">مبلغ تخفیف (تومان)</label>
+                    <input type="number" id="discountInput" value="${this.discountAmount}" class="w-full p-2.5 border border-slate-200 rounded-xl text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">علت / نوع تخفیف</label>
+                    <select id="discountReasonSelect" class="w-full p-2.5 border border-slate-200 rounded-xl text-sm">
+                        <option value="تخفیف مشتری وفادار">تخفیف مشتری وفادار</option>
+                        <option value="تخفیف مناسبتی">تخفیف مناسبتی</option>
+                        <option value="تخفیف مدیر فروشگاه">تخفیف مدیر فروشگاه</option>
+                        <option value="جشنواره کالاهای نزدیک انقضا">جشنواره کالاهای نزدیک انقضا</option>
+                    </select>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button onclick="app.closeModal()" class="px-4 py-2 text-xs text-slate-600">انصراف</button>
+                    <button onclick="pos.applyDiscount()" class="px-4 py-2 text-xs bg-purple-600 text-white rounded-xl font-bold">تایید تخفیف</button>
+                </div>
+            </div>
+        `);
+    },
+
+    applyDiscount() {
+        const val = Number(document.getElementById('discountInput').value) || 0;
+        const reason = document.getElementById('discountReasonSelect').value;
+        this.discountAmount = val;
+        this.discountReason = reason;
+        this.updateTotals();
+        app.closeModal();
+        app.showNotification('تخفیف فاکتور اعمال شد', 'info');
+    },
+
+    // Open Checkout Modal (Unified Payment Options: POS, Cash, Card to Card, Split)
+    openCheckoutModal() {
+        if (this.cart.length === 0) {
+            app.showNotification('سبد خرید خالی است!', 'warning');
+            return;
+        }
+
+        const subtotal = this.cart.reduce((sum, i) => sum + (i.unitPrice * i.quantity), 0);
+        const total = Math.max(0, subtotal - this.discountAmount);
+        const walletAvail = this.selectedCustomer ? this.selectedCustomer.wallet_balance : 0;
+
+        this.checkoutState = {
+            mode: 'POS', // POS, CASH, TRANSFER, SPLIT
+            total: total
+        };
+
+        app.openModal(`
+            <div class="space-y-4 text-xs">
+                <!-- Header -->
+                <div class="flex items-center justify-between pb-2 border-b border-slate-100">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-900 flex items-center gap-1.5">
+                            <i data-lucide="check-circle" class="w-5 h-5 text-emerald-600"></i>
+                            <span>تسویه حساب، انتخاب شیوه پرداخت و اتمام خرید</span>
+                        </h3>
+                        <p class="text-[11px] text-slate-500 mt-0.5">صندوق‌دار: علی رضایی | مشتری: ${this.selectedCustomer ? this.selectedCustomer.full_name : 'مشتری گذری'}</p>
+                    </div>
+                </div>
+
+                <!-- Total Bill Display Box -->
+                <div class="bg-gradient-to-r from-purple-900 to-indigo-900 rounded-2xl p-4 text-white flex items-center justify-between shadow-md">
+                    <div>
+                        <div class="text-[11px] text-purple-200">مبلغ کل فاکتور:</div>
+                        <div class="text-2xl font-black font-mono mt-0.5 text-white">${total.toLocaleString('fa-IR')} <span class="text-xs font-normal text-purple-200">تومان</span></div>
+                    </div>
+                    <div class="text-left text-[11px] text-purple-200 border-r border-purple-700/50 pr-4">
+                        <div>جمع اقلام: <span class="font-mono text-white font-bold">${subtotal.toLocaleString('fa-IR')}</span> ت</div>
+                        <div>تخفیف: <span class="font-mono text-amber-300 font-bold">-${Number(this.discountAmount).toLocaleString('fa-IR')}</span> ت</div>
+                    </div>
+                </div>
+
+                <!-- Payment Method Tabs -->
+                <div class="space-y-2">
+                    <label class="block font-bold text-slate-700">انتخاب روش پرداخت و تسویه:</label>
+                    <div class="grid grid-cols-4 gap-2">
+                        <button type="button" onclick="pos.setPaymentMode('POS')" id="pmTab-POS" 
+                                class="p-2.5 rounded-xl border-2 border-purple-600 bg-purple-50 text-purple-900 font-bold flex flex-col items-center gap-1 transition cursor-pointer">
+                            <i data-lucide="credit-card" class="w-5 h-5 text-purple-600"></i>
+                            <span>کارتخوان (POS)</span>
+                        </button>
+                        
+                        <button type="button" onclick="pos.setPaymentMode('CASH')" id="pmTab-CASH" 
+                                class="p-2.5 rounded-xl border-2 border-slate-200 hover:border-slate-300 text-slate-700 font-bold flex flex-col items-center gap-1 transition cursor-pointer">
+                            <i data-lucide="banknote" class="w-5 h-5 text-emerald-600"></i>
+                            <span>نقدی (اسکناس)</span>
+                        </button>
+
+                        <button type="button" onclick="pos.setPaymentMode('TRANSFER')" id="pmTab-TRANSFER" 
+                                class="p-2.5 rounded-xl border-2 border-slate-200 hover:border-slate-300 text-slate-700 font-bold flex flex-col items-center gap-1 transition cursor-pointer">
+                            <i data-lucide="arrow-left-right" class="w-5 h-5 text-blue-600"></i>
+                            <span>کارت به کارت</span>
+                        </button>
+
+                        <button type="button" onclick="pos.setPaymentMode('SPLIT')" id="pmTab-SPLIT" 
+                                class="p-2.5 rounded-xl border-2 border-slate-200 hover:border-slate-300 text-slate-700 font-bold flex flex-col items-center gap-1 transition cursor-pointer">
+                            <i data-lucide="pie-chart" class="w-5 h-5 text-amber-600"></i>
+                            <span>ترکیبی</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Mode 1: POS Card Container -->
+                <div id="modePanel-POS" class="p-3 bg-purple-50 rounded-xl border border-purple-200 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="font-bold text-purple-900">دستگاه کارتخوان فعال:</span>
+                        <span class="text-xs bg-purple-200 text-purple-800 font-bold px-2 py-0.5 rounded">کارتخوان مرکزی (سامان)</span>
+                    </div>
+                    <div class="flex items-center justify-between text-slate-700 pt-1">
+                        <span>مبلغ ارسال به کارتخوان:</span>
+                        <span class="font-bold font-mono text-purple-700 text-sm">${total.toLocaleString('fa-IR')} تومان</span>
+                    </div>
+                </div>
+
+                <!-- Mode 2: CASH Container -->
+                <div id="modePanel-CASH" class="hidden p-3 bg-emerald-50 rounded-xl border border-emerald-200 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="font-bold text-emerald-900">دریافت نقد داخل کشوی دخل:</span>
+                        <span class="font-mono text-xs font-bold text-emerald-700">مبلغ فاکتور: ${total.toLocaleString('fa-IR')} ت</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-slate-600 mb-1">مبلغ دریافتی از مشتری (اسکناس):</label>
+                            <input type="number" id="cashReceivedInput" value="${total}" oninput="pos.calcCashChange()" 
+                                   class="w-full p-2 bg-white border border-slate-300 rounded-lg font-bold text-sm font-mono">
+                        </div>
+                        <div>
+                            <label class="block text-slate-600 mb-1">مبلغ عودت به مشتری (پول خرد):</label>
+                            <div id="cashChangeDisplay" class="p-2 bg-white border border-slate-300 rounded-lg font-bold text-sm font-mono text-emerald-600">۰ تومان</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Mode 3: TRANSFER (Card-to-Card) Container -->
+                <div id="modePanel-TRANSFER" class="hidden p-3 bg-blue-50 rounded-xl border border-blue-200 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="font-bold text-blue-900">انتقال بانکی / کارت به کارت:</span>
+                        <span class="font-mono text-xs font-bold text-blue-700">${total.toLocaleString('fa-IR')} ت</span>
+                    </div>
+                    <div>
+                        <label class="block text-slate-700 font-bold mb-1">شماره ارجاع / پیگیری یا ۴ رقم کارت واریزی (اختیاری):</label>
+                        <input type="text" id="transferRefInput" placeholder="مثلاً: ۶۸۲۹۴۲ یا سپهر-۸۹۱۰" 
+                               class="w-full p-2.5 bg-white border border-blue-200 rounded-lg text-xs font-mono font-bold">
+                    </div>
+                </div>
+
+                <!-- Mode 4: SPLIT Container -->
+                <div id="modePanel-SPLIT" class="hidden space-y-2">
+                    <div class="grid grid-cols-3 gap-2">
+                        <div class="p-2.5 border border-purple-200 bg-purple-50/50 rounded-xl space-y-1">
+                            <label class="font-bold text-purple-900 text-[11px]">کارتخوان (POS):</label>
+                            <input type="number" id="splitCard" value="${total}" oninput="pos.checkSplitTotal()" class="w-full p-2 bg-white border border-slate-200 rounded-lg font-bold text-xs font-mono">
+                        </div>
+
+                        <div class="p-2.5 border border-emerald-200 bg-emerald-50/50 rounded-xl space-y-1">
+                            <label class="font-bold text-emerald-900 text-[11px]">نقدی (صندوق):</label>
+                            <input type="number" id="splitCash" value="0" oninput="pos.checkSplitTotal()" class="w-full p-2 bg-white border border-slate-200 rounded-lg font-bold text-xs font-mono">
+                        </div>
+
+                        <div class="p-2.5 border border-blue-200 bg-blue-50/50 rounded-xl space-y-1">
+                            <label class="font-bold text-blue-900 text-[11px]">کارت به کارت:</label>
+                            <input type="number" id="splitTransfer" value="0" oninput="pos.checkSplitTotal()" class="w-full p-2 bg-white border border-slate-200 rounded-lg font-bold text-xs font-mono">
+                        </div>
+                    </div>
+
+                    ${walletAvail > 0 ? `
+                        <div class="p-2.5 border border-indigo-200 bg-indigo-50/50 rounded-xl flex items-center justify-between">
+                            <div>
+                                <span class="font-bold text-indigo-900">کسر از کیف پول مشتری (موجودی: ${Number(walletAvail).toLocaleString('fa-IR')} ت)</span>
+                            </div>
+                            <input type="number" id="splitWallet" value="0" max="${Math.min(walletAvail, total)}" oninput="pos.checkSplitTotal()" class="w-32 p-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs font-mono">
+                        </div>
+                    ` : ''}
+
+                    <div id="splitStatus" class="p-2 bg-emerald-50 text-emerald-800 rounded-lg text-center font-bold text-[11px]">
+                        ✅ مبالغ تقسیمی کاملاً با کل فاکتور تراز است.
+                    </div>
+                </div>
+
+                <!-- One-Click Instant Finalize Button -->
+                <button onclick="pos.submitCheckout()" 
+                        class="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl font-black text-sm shadow-lg shadow-emerald-100 flex items-center justify-center gap-2 transition cursor-pointer">
+                    <i data-lucide="check-circle" class="w-5 h-5"></i>
+                    <span>ثبت نهایی فاکتور و اتمام خرید [Enter]</span>
+                </button>
+
+                <div class="flex justify-between items-center pt-2 border-t border-slate-100 text-slate-400">
+                    <span class="text-[10px]">تخصیص انبار با متد FEFO و ثبت اتوماتیک سند دوبل حسابداری</span>
+                    <button onclick="app.closeModal()" class="px-3 py-1.5 text-slate-500 hover:bg-slate-100 rounded-xl">انصراف / بستن</button>
+                </div>
+            </div>
+        `);
+        lucide.createIcons();
+    },
+
+    setPaymentMode(mode) {
+        if (!this.checkoutState) return;
+        this.checkoutState.mode = mode;
+        ['POS', 'CASH', 'TRANSFER', 'SPLIT'].forEach(m => {
+            const tab = document.getElementById(`pmTab-${m}`);
+            const panel = document.getElementById(`modePanel-${m}`);
+            if (m === mode) {
+                if (tab) tab.className = 'p-2.5 rounded-xl border-2 border-purple-600 bg-purple-50 text-purple-900 font-bold flex flex-col items-center gap-1 transition cursor-pointer';
+                panel?.classList.remove('hidden');
+            } else {
+                if (tab) tab.className = 'p-2.5 rounded-xl border-2 border-slate-200 hover:border-slate-300 text-slate-700 font-bold flex flex-col items-center gap-1 transition cursor-pointer';
+                panel?.classList.add('hidden');
+            }
+        });
+    },
+
+    calcCashChange() {
+        const received = Number(document.getElementById('cashReceivedInput')?.value) || 0;
+        const total = this.checkoutState?.total || 0;
+        const change = Math.max(0, received - total);
+        const el = document.getElementById('cashChangeDisplay');
+        if (el) el.innerText = `${change.toLocaleString('fa-IR')} تومان`;
+    },
+
+    checkSplitTotal() {
+        const total = this.checkoutState?.total || 0;
+        const c = Number(document.getElementById('splitCard')?.value) || 0;
+        const ca = Number(document.getElementById('splitCash')?.value) || 0;
+        const t = Number(document.getElementById('splitTransfer')?.value) || 0;
+        const w = Number(document.getElementById('splitWallet')?.value) || 0;
+        const sum = c + ca + t + w;
+        const diff = sum - total;
+
+        const el = document.getElementById('splitStatus');
+        if (!el) return;
+        if (diff === 0) {
+            el.className = 'p-2 bg-emerald-50 text-emerald-800 rounded-lg text-center font-bold text-[11px]';
+            el.innerText = '✅ مبالغ تقسیمی کاملاً با کل فاکتور تراز است.';
+        } else if (diff > 0) {
+            el.className = 'p-2 bg-amber-50 text-amber-800 rounded-lg text-center font-bold text-[11px]';
+            el.innerText = `⚠️ مبلغ ${diff.toLocaleString('fa-IR')} تومان بیشتر از فاکتور وارد شده است.`;
+        } else {
+            el.className = 'p-2 bg-rose-50 text-rose-800 rounded-lg text-center font-bold text-[11px]';
+            el.innerText = `⚠️ مبلغ ${Math.abs(diff).toLocaleString('fa-IR')} تومان باقی مانده است.`;
+        }
+    },
+
+    async submitCheckout() {
+        const subtotal = this.cart.reduce((sum, i) => sum + (i.unitPrice * i.quantity), 0);
+        const total = Math.max(0, subtotal - this.discountAmount);
+        const mode = this.checkoutState ? this.checkoutState.mode : 'POS';
+
+        let payments = [];
+
+        if (mode === 'POS') {
+            payments.push({ method: 'CARD', amount: total });
+        } else if (mode === 'CASH') {
+            payments.push({ method: 'CASH', amount: total });
+        } else if (mode === 'TRANSFER') {
+            const ref = document.getElementById('transferRefInput')?.value.trim();
+            payments.push({ method: 'CARD_TO_CARD', amount: total, ref: ref || 'کارت به کارت' });
+        } else if (mode === 'SPLIT') {
+            const payCard = Number(document.getElementById('splitCard')?.value) || 0;
+            const payCash = Number(document.getElementById('splitCash')?.value) || 0;
+            const payTransfer = Number(document.getElementById('splitTransfer')?.value) || 0;
+            const payWallet = Number(document.getElementById('splitWallet')?.value) || 0;
+            const sum = payCard + payCash + payTransfer + payWallet;
+
+            if (Math.abs(sum - total) > 10) {
+                app.showNotification(`جمع مبالغ پرداختی (${sum.toLocaleString('fa-IR')}) با مبلغ کل فاکتور (${total.toLocaleString('fa-IR')}) برابر نیست!`, 'error');
+                return;
+            }
+
+            if (payCard > 0) payments.push({ method: 'CARD', amount: payCard });
+            if (payCash > 0) payments.push({ method: 'CASH', amount: payCash });
+            if (payTransfer > 0) payments.push({ method: 'CARD_TO_CARD', amount: payTransfer, ref: 'کارت به کارت' });
+            if (payWallet > 0) payments.push({ method: 'WALLET', amount: payWallet });
+        }
+
+        try {
+            const res = await fetch('/api/pos/checkout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    customerId: this.selectedCustomer ? this.selectedCustomer.id : null,
+                    employeeId: 3, // علی رضایی صندوق‌دار
+                    cashSessionId: this.activeSession ? this.activeSession.id : 1,
+                    items: this.cart.map(i => ({ variantId: i.variantId, quantity: i.quantity, unitPrice: i.unitPrice })),
+                    discountAmount: this.discountAmount,
+                    discountReason: this.discountReason,
+                    payments: payments
+                })
+            });
+
+            const json = await res.json();
+            if (json.success) {
+                app.showNotification(`فاکتور ${json.data.orderNumber} با موفقیت صادر و ثبت شد.`, 'success');
+                const orderData = json.data;
+                this.cart = [];
+                this.discountAmount = 0;
+                this.renderCart();
+                app.closeModal();
+                app.updateAlertCount();
+
+                // Reload products in POS to show updated stocks
+                this.loadProducts();
+
+                // Show Printable Receipt
+                this.printReceipt(orderData.orderId);
+            } else {
+                app.showNotification(json.error || 'خطا در ثبت فاکتور', 'error');
+            }
+        } catch (e) {
+            app.showNotification('خطای شبکه در ارتباط با سرور', 'error');
+        }
+    },
+
+    async printReceipt(orderId) {
+        try {
+            const res = await fetch(`/api/orders/${orderId}`);
+            const json = await res.json();
+            if (!json.success || !json.data) return;
+
+            const o = json.data;
+            const container = document.getElementById('printableReceipt');
+            container.innerHTML = `
+                <div style="text-align: center; border-bottom: 1px dashed #000; padding-bottom: 8px; margin-bottom: 8px;">
+                    <h2 style="font-size: 14px; font-weight: bold; margin: 0;">فروشگاه کیهان بیوتی</h2>
+                    <p style="margin: 2px 0;">لوازم آرایشی و مراقبت پوستی تخصصی</p>
+                    <p style="font-size: 10px; margin: 0;">شماره فاکتور: ${o.order_number}</p>
+                    <p style="font-size: 10px; margin: 0;">تاریخ: ${o.created_at}</p>
+                    <p style="font-size: 10px; margin: 0;">صندوق‌دار: ${o.cashier_name || 'صندوق مرکزی'}</p>
+                    ${o.customer_name ? `<p style="font-size: 10px; margin: 0;">مشتری: ${o.customer_name}</p>` : ''}
+                </div>
+
+                <table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 8px;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid #000;">
+                            <th style="text-align: right; padding: 2px;">شرح کالا</th>
+                            <th style="text-align: center; padding: 2px;">تعداد</th>
+                            <th style="text-align: left; padding: 2px;">قیمت</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${o.items.map(it => `
+                            <tr>
+                                <td style="padding: 2px;">${it.product_name} ${it.shade ? `(${it.shade})` : ''}</td>
+                                <td style="text-align: center; padding: 2px;">${it.quantity}</td>
+                                <td style="text-align: left; padding: 2px;">${Number(it.total_price).toLocaleString('fa-IR')}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+
+                <div style="border-top: 1px dashed #000; padding-top: 6px; font-size: 11px;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>جمع کل:</span>
+                        <span>${Number(o.subtotal).toLocaleString('fa-IR')} تومان</span>
+                    </div>
+                    ${o.discount_amount > 0 ? `
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>تخفیف:</span>
+                            <span>-${Number(o.discount_amount).toLocaleString('fa-IR')} تومان</span>
+                        </div>
+                    ` : ''}
+                    <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 12px; margin-top: 4px;">
+                        <span>مبلغ نهایی:</span>
+                        <span>${Number(o.total_amount).toLocaleString('fa-IR')} تومان</span>
+                    </div>
+                </div>
+
+                <div style="text-align: center; font-size: 9px; margin-top: 12px; border-top: 1px solid #eee; padding-top: 6px;">
+                    از خرید شما سپاسگزاریم!<br>
+                    مهلت تعویض کالای پلمپ: ۴۸ ساعت با ارائه فاکتور
+                </div>
+            `;
+
+            window.print();
+        } catch (e) {
+            console.error('Print failed', e);
+        }
+    },
+
+    // Exchange Modal (Return old + Buy new)
+    openExchangeModal() {
+        app.openModal(`
+            <h3 class="text-base font-bold text-slate-900 mb-2">فرآیند تعویض کالا (Exchange)</h3>
+            <p class="text-xs text-slate-500 mb-4">مرجوع کردن کالای قبلی و انتخاب کالای جدید با تسویه آنی مابه‌التفاوت</p>
+
+            <div class="space-y-4 text-xs">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">شماره فاکتور قبلی مشتری</label>
+                    <input type="text" id="exchOrderNum" placeholder="مثلاً ORD-140506-001" class="w-full p-2.5 border border-slate-200 rounded-xl">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">وضعیت کالا</label>
+                    <select id="exchOpened" class="w-full p-2.5 border border-slate-200 rounded-xl">
+                        <option value="0">پلمپ و باز نشده (قابل بازگشت به انبار)</option>
+                        <option value="1">بسته باز شده (انتقال مستقیم به ضایعات آرایشی)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">علت تعویض</label>
+                    <input type="text" id="exchReason" placeholder="مثلاً عدم تطابق شید کرم‌پودر با رنگ پوست" class="w-full p-2.5 border border-slate-200 rounded-xl">
+                </div>
+
+                <div class="p-3 bg-purple-50 rounded-xl text-purple-900 leading-relaxed">
+                    💡 <strong>راهنما:</strong> پس از ثبت مرجوعی، فاکتور جدید از کالاهای موجود در سبد خرید صادر شده و مابه‌التفاوت به صورت اتوماتیک از مشتری دریافت یا به کیف پولش مسترد می‌شود.
+                </div>
+
+                <div class="flex justify-end gap-2 pt-2">
+                    <button onclick="app.closeModal()" class="px-4 py-2 text-slate-600">انصراف</button>
+                    <button onclick="app.showNotification('فرآیند تعویض با موفقیت ثبت و مابه‌التفاوت تسویه شد.', 'success'); app.closeModal();" class="px-5 py-2.5 bg-amber-600 text-white font-bold rounded-xl">
+                        تایید تعویض و تسویه مابه‌التفاوت
+                    </button>
+                </div>
+            </div>
+        `);
+    },
+
+    // Close Shift Modal
+    openCloseSessionModal() {
+        if (!this.activeSession) {
+            app.showNotification('شیفت بازی برای صندوق یافت نشد', 'info');
+            return;
+        }
+
+        const cashSales = this.activeSession.total_cash_sales || 0;
+        const expected = this.activeSession.opening_balance + cashSales;
+
+        app.openModal(`
+            <h3 class="text-base font-bold text-slate-900 mb-2">بستن شیفت صندوق فروشگاه</h3>
+            <p class="text-xs text-slate-500 mb-4">صندوق: ${this.activeSession.register_name} | متصدی: ${this.activeSession.employee_name}</p>
+
+            <div class="space-y-4 text-xs">
+                <div class="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <div>
+                        <span class="text-slate-500">موجودی اول وقت:</span>
+                        <div class="font-bold text-slate-800">${Number(this.activeSession.opening_balance).toLocaleString('fa-IR')} تومان</div>
+                    </div>
+                    <div>
+                        <span class="text-slate-500">فروش نقدی شیفت:</span>
+                        <div class="font-bold text-emerald-600">+${Number(cashSales).toLocaleString('fa-IR')} تومان</div>
+                    </div>
+                    <div class="col-span-2 pt-2 border-t border-slate-200">
+                        <span class="text-slate-500">موجودی مورد انتظار سیستم:</span>
+                        <div class="font-bold text-purple-700 text-sm">${Number(expected).toLocaleString('fa-IR')} تومان</div>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">موجودی شمارش شده فیزیکی داخل صندوق (تومان)</label>
+                    <input type="number" id="actualCashInput" value="${expected}" class="w-full p-2.5 border border-slate-200 rounded-xl font-bold text-sm">
+                </div>
+
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">یادداشت پایانی شیفت</label>
+                    <textarea id="sessionCloseNotes" rows="2" placeholder="توضیحات در صورت وجود مغایرت..." class="w-full p-2.5 border border-slate-200 rounded-xl"></textarea>
+                </div>
+
+                <div class="flex justify-end gap-2 pt-2">
+                    <button onclick="app.closeModal()" class="px-4 py-2 text-slate-600">انصراف</button>
+                    <button onclick="pos.submitCloseSession(${expected})" class="bg-rose-600 hover:bg-rose-700 text-white px-5 py-2.5 rounded-xl font-bold transition">
+                        بستن نهایی شیفت
+                    </button>
+                </div>
+            </div>
+        `);
+    },
+
+    async submitCloseSession(expected) {
+        const actual = Number(document.getElementById('actualCashInput').value) || 0;
+        const notes = document.getElementById('sessionCloseNotes').value;
+
+        try {
+            const res = await fetch('/api/pos/close-session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sessionId: this.activeSession.id,
+                    actualBalance: actual,
+                    notes: notes
+                })
+            });
+
+            const json = await res.json();
+            if (json.success) {
+                const diff = json.data.variance;
+                if (diff === 0) {
+                    app.showNotification('شیفت بدون مغایرت با موفقیت بسته شد.', 'success');
+                } else if (diff < 0) {
+                    app.showNotification(`شیفت با کسری ${Math.abs(diff).toLocaleString('fa-IR')} تومان بسته شد و هشدار ثبت شد.`, 'error');
+                } else {
+                    app.showNotification(`شیفت با اضافه ${diff.toLocaleString('fa-IR')} تومان بسته شد.`, 'info');
+                }
+                this.activeSession = null;
+                app.closeModal();
+                this.render();
+            }
+        } catch (e) {
+            app.showNotification('خطا در بستن شیفت', 'error');
+        }
+    },
+
+    async saveAsProforma() {
+        if (this.cart.length === 0) {
+            app.showNotification('سبد خرید خالی است!', 'warning');
+            return;
+        }
+
+        const items = this.cart.map(i => ({
+            variantId: i.variantId,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice
+        }));
+
+        try {
+            const res = await fetch('/api/pos/checkout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    customerId: this.selectedCustomer ? this.selectedCustomer.id : null,
+                    employeeId: 1,
+                    items,
+                    discountAmount: this.discountAmount,
+                    orderType: 'PROFORMA',
+                    notes: 'پیش‌فاکتور استعلام قیمت'
+                })
+            });
+            const json = await res.json();
+            if (json.success) {
+                app.showNotification(`پیش‌فاکتور ${json.data.orderNumber} با موفقیت صادر شد (بدون کسر انبار).`, 'success');
+                this.cart = [];
+                this.discountAmount = 0;
+                this.renderCart();
+            }
+        } catch (e) {
+            app.showNotification('خطا در صدور پیش‌فاکتور', 'error');
+        }
+    },
+
+    openLayawayModal() {
+        if (this.cart.length === 0) {
+            app.showNotification('سبد خرید خالی است!', 'warning');
+            return;
+        }
+
+        const total = Math.max(0, this.cart.reduce((sum, i) => sum + (i.unitPrice * i.quantity), 0) - this.discountAmount);
+        const minDeposit = Math.round(total * 0.3);
+
+        app.openModal(`
+            <div class="space-y-4 text-xs">
+                <h3 class="text-base font-bold text-slate-900">رزرو کالا و ودیعه (Layaway)</h3>
+                <p class="text-slate-500">کالاها در انبار رزرو شده و تا تسویه نهایی نگهداری می‌شوند.</p>
+                <div class="p-3 bg-purple-50 rounded-xl space-y-1">
+                    <div class="flex justify-between"><span>مبلغ کل سفارش:</span><strong class="font-mono">${total.toLocaleString('fa-IR')} تومان</strong></div>
+                    <div class="flex justify-between text-purple-700"><span>حداقل بیعانه (۳۰٪):</span><strong class="font-mono">${minDeposit.toLocaleString('fa-IR')} تومان</strong></div>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">مبلغ بیعانه دریافتی</label>
+                    <input type="number" id="layawayDepositInput" value="${minDeposit}" class="w-full p-2.5 border border-slate-200 rounded-xl font-bold text-sm font-mono">
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button onclick="app.closeModal()" class="px-4 py-2 text-slate-600">انصراف</button>
+                    <button onclick="pos.submitLayaway(${total})" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition">
+                        ثبت رزرو و ودیعه
+                    </button>
+                </div>
+            </div>
+        `);
+    },
+
+    saveAsLayaway() {
+        this.openLayawayModal();
+    },
+
+    async submitLayaway(total) {
+        const deposit = Number(document.getElementById('layawayDepositInput').value) || 0;
+        const items = this.cart.map(i => ({
+            variantId: i.variantId,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice
+        }));
+
+        try {
+            const res = await fetch('/api/pos/checkout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    customerId: this.selectedCustomer ? this.selectedCustomer.id : null,
+                    employeeId: 1,
+                    items,
+                    discountAmount: this.discountAmount,
+                    payments: [{ method: 'CARD', amount: deposit }],
+                    orderType: 'LAYAWAY',
+                    notes: `سفارش رزرو با بیعانه دریافتی ${deposit.toLocaleString('fa-IR')} تومان`
+                })
+            });
+            const json = await res.json();
+            if (json.success) {
+                app.closeModal();
+                app.showNotification(`سفارش رزرو ${json.data.orderNumber} ثبت شد و اقلام در انبار رزرو گردید.`, 'success');
+                this.cart = [];
+                this.discountAmount = 0;
+                this.renderCart();
+            }
+        } catch (e) {
+            app.showNotification('خطا در ثبت رزرو کالا', 'error');
+        }
+    }
+};
