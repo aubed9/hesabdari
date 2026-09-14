@@ -53,23 +53,6 @@ function initDatabase() {
             }
         }
 
-        // Ensure campaign_recipients table exists
-        db.exec(`
-            CREATE TABLE IF NOT EXISTS campaign_recipients (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
-                customer_id INTEGER REFERENCES customers(id),
-                name TEXT,
-                mobile TEXT NOT NULL,
-                status TEXT CHECK(status IN ('QUEUED', 'SENT', 'FAILED', 'CLICKED', 'CONVERTED')) DEFAULT 'SENT',
-                sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
-        `);
-
-        // Safely add any missing columns to campaigns
-        try { db.exec(`ALTER TABLE campaigns ADD COLUMN message_template TEXT;`); } catch (e) {}
-        try { db.exec(`ALTER TABLE campaigns ADD COLUMN coupon_code TEXT;`); } catch (e) {}
-        try { db.exec(`ALTER TABLE campaigns ADD COLUMN recipients_count INTEGER DEFAULT 0;`); } catch (e) {}
 
         console.log('✅ SQLite Schema initialized successfully.');
     } catch (err) {

@@ -251,21 +251,23 @@ const posService = {
                 const unitPrice = item.unitPrice;
 
                 // Fetch available batches ordered by expiry_date ASC (FEFO)
+                // CRITICAL: Use (quantity - reserved_quantity) to exclude layaway reservations
                 const batches = db.prepare(`
-                    SELECT id, batch_number, expiry_date, quantity, purchase_price
+                    SELECT id, batch_number, expiry_date, quantity, reserved_quantity, purchase_price
                     FROM inventory_batches
-                    WHERE product_variant_id = ? AND quantity > 0
+                    WHERE product_variant_id = ? AND (quantity - reserved_quantity) > 0
                     ORDER BY expiry_date ASC
                 `).all(item.variantId);
 
-                const totalAvail = batches.reduce((sum, b) => sum + b.quantity, 0);
+                const totalAvail = batches.reduce((sum, b) => sum + (b.quantity - b.reserved_quantity), 0);
                 if (totalAvail < remainingToFulfill) {
-                    throw new Error(`موجودی برای محصول با شناسه ${item.variantId} کافی نیست. موجود: ${totalAvail}، درخواستی: ${remainingToFulfill}`);
+                    throw new Error(`موجودی برای محصول با شناسه ${item.variantId} کافی نیست. موجود (غیررزرو): ${totalAvail}، درخواستی: ${remainingToFulfill}`);
                 }
 
                 for (const b of batches) {
                     if (remainingToFulfill <= 0) break;
-                    const takeQty = Math.min(b.quantity, remainingToFulfill);
+                    const available = b.quantity - b.reserved_quantity;
+                    const takeQty = Math.min(available, remainingToFulfill);
                     
                     // Deduct batch quantity
                     db.prepare(`UPDATE inventory_batches SET quantity = quantity - ? WHERE id = ?`).run(takeQty, b.id);
@@ -288,17 +290,28 @@ const posService = {
 
             const totalAmount = Math.max(0, roundMoney(subtotal - discountAmount));
 
+            // Compute real payment status
+            const totalPaid = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+            let paymentStatus;
+            if (totalPaid >= totalAmount) {
+                paymentStatus = 'PAID';
+            } else if (totalPaid > 0) {
+                paymentStatus = 'PARTIAL';
+            } else {
+                paymentStatus = 'UNPAID';
+            }
+
             // 1. Insert Order
             const orderRes = db.prepare(`
                 INSERT INTO orders (
                     order_number, order_type, channel, customer_id, employee_id,
                     cash_session_id, subtotal, discount_amount, discount_reason,
                     tax_amount, total_amount, total_cost, status, payment_status, notes, created_at
-                ) VALUES (?, 'SALE', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 'COMPLETED', 'PAID', ?, ?)
+                ) VALUES (?, 'SALE', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 'COMPLETED', ?, ?, ?)
             `).run(
                 orderNumber, channel, customerId || null, employeeId || 1,
                 cashSessionId || null, subtotal, discountAmount, discountReason,
-                totalAmount, totalCogs, notes, orderCreatedAt
+                totalAmount, totalCogs, paymentStatus, notes, orderCreatedAt
             );
             const orderId = orderRes.lastInsertRowid;
 
@@ -418,9 +431,22 @@ const posService = {
             const accDisc = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '403'`).get().id;
             const accCOGS = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '501'`).get().id;
 
-            // Debit Payments
+            // Debit Payments — route each method to its correct GL account
+            const accWallet = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '205'`).get();
+            const accNotes = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '106'`).get();
+            const accPointsDisc = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '603'`).get();
+
+            const paymentAccountMap = {
+                'CASH': accCash,
+                'CARD': accBank,
+                'ONLINE': accBank,
+                'WALLET': accWallet ? accWallet.id : accBank,
+                'POINTS': accPointsDisc ? accPointsDisc.id : accDisc,
+                'CHEQUE': accNotes ? accNotes.id : accBank
+            };
+
             for (const p of payments) {
-                const targetAcc = p.method === 'CASH' ? accCash : accBank;
+                const targetAcc = paymentAccountMap[p.method] || accBank;
                 db.prepare(`
                     INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit, description)
                     VALUES (?, ?, ?, 0, ?)

@@ -1,8 +1,19 @@
 // Comprehensive Seed Data for Arayeshi Retail ERP
-const db = require('./database');
 
-function seedAll() {
+if (process.env.ALLOW_DESTRUCTIVE_SEED !== 'true') {
+    console.error('CRITICAL: Destructive seed prevented! To wipe and re-seed, run with ALLOW_DESTRUCTIVE_SEED=true');
+    process.exit(1);
+}
+
+const db = require('./database');
+const { createBackup } = require('../scripts/backup');
+
+async function seedAll() {
     console.log('🌱 Starting comprehensive data seeding for Arayeshi ERP...');
+
+    // Automatic pre-seed safety backup before wiping data
+    console.log('🛡️  Creating automated pre-seed safety backup before wiping data...');
+    await createBackup({ filename: `pre_seed_${Date.now()}.sqlite3`, updateLatest: false });
 
     // Clear existing data safely
     const tables = [
@@ -477,4 +488,16 @@ function seedAll() {
     console.log('✅ Comprehensive seeding completed successfully!');
 }
 
-seedAll();
+if (require.main === module) {
+    seedAll()
+        .then(() => {
+            process.exit(0);
+        })
+        .catch(err => {
+            console.error('❌ Seeding failed:', err);
+            process.exit(1);
+        });
+}
+
+module.exports = { seedAll };
+

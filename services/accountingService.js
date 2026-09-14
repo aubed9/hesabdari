@@ -56,7 +56,7 @@ const accountingService = {
                 throw new Error(`سند تراز نیست! جمع بدهکار: ${totalDebit}، جمع بستانکار: ${totalCredit}`);
             }
 
-            const eNum = entryNumber || `JE-${Date.now().toString().slice(-6)}`;
+            const eNum = entryNumber || `JE-${Date.now()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
             const res = db.prepare(`
                 INSERT INTO journal_entries (entry_number, date, description, reference_type, reference_id, is_posted, created_by)
                 VALUES (?, COALESCE(?, DATE('now')), ?, ?, ?, 1, ?)

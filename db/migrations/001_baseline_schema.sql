@@ -1,4 +1,8 @@
--- Database Schema for Arayeshi Retail ERP (SQLite)
+-- 001_baseline_schema.sql
+-- Baseline Schema Migration for Arayeshi Retail ERP
+-- Consolidates complete core schema including campaigns, campaign_recipients,
+-- system_settings, and enhanced audit columns.
+
 PRAGMA foreign_keys = ON;
 
 -- 1. Organizations & Branches
@@ -610,7 +614,7 @@ INSERT OR IGNORE INTO system_settings (key, value, description) VALUES
 ('default_cash_account_id', '101', 'شناسه حساب کل موجودی صندوق در کدینگ'),
 ('tax_rate', '0.09', 'نرخ استاندارد مالیات بر ارزش افزوده');
 
--- Indexes for lightning fast queries
+-- Indexes
 CREATE INDEX IF NOT EXISTS idx_product_variants_barcode ON product_variants(barcode);
 CREATE INDEX IF NOT EXISTS idx_product_variants_sku ON product_variants(sku);
 CREATE INDEX IF NOT EXISTS idx_inventory_batches_expiry ON inventory_batches(expiry_date);
