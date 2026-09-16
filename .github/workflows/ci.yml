@@ -1,0 +1,35 @@
+name: Arayeshi Retail ERP CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'refactor/**'
+  pull_request:
+    branches:
+      - main
+      - 'refactor/**'
+
+jobs:
+  test:
+    name: Test & Verify Integrity
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Verify Migrations Runner
+        run: node db/migrator.js
+
+      - name: Run E2E Automated Test Suite
+        run: npm test
