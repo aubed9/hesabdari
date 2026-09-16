@@ -132,6 +132,29 @@ const crmService = {
                 INSERT INTO wallet_transactions (customer_id, type, amount, description)
                 VALUES (?, 'DEPOSIT', ?, 'شارژ کیف پول از محل تبدیل امتیاز وفاداری')
             `).run(customerId, cashValue);
+
+            // Double-Entry Accounting:
+            // Dr 603 (Marketing & Loyalty Promotion Expense)
+            // Cr 205 (Customer Wallet Liability)
+            const accLoyaltyExp = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '603'`).get().id;
+            const accWalletLiab = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '205'`).get() || { id: accLoyaltyExp };
+
+            const entryNumber = `JE-LRED-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+            const jRes = db.prepare(`
+                INSERT INTO journal_entries (entry_number, date, description, reference_type, reference_id, is_posted, created_by)
+                VALUES (?, DATE('now'), ?, 'LOYALTY_REDEMPTION', ?, 1, 1)
+            `).run(entryNumber, `تبدیل ${pointsToConvert} امتیاز به کیف پول مشتری`, customerId);
+            const jId = jRes.lastInsertRowid;
+
+            db.prepare(`
+                INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit, description)
+                VALUES (?, ?, ?, 0, 'هزینه ارتقای وفاداری مشتریان')
+            `).run(jId, accLoyaltyExp, cashValue);
+
+            db.prepare(`
+                INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit, description)
+                VALUES (?, ?, 0, ?, 'ایجاد تعهد بابت موجودی کیف پول مشتری')
+            `).run(jId, accWalletLiab.id, cashValue);
         })();
 
         return { convertedPoints: pointsToConvert, cashValue };
@@ -251,7 +274,7 @@ const crmService = {
         return { success: true };
     },
 
-    // Adjust Wallet Balance
+    // Adjust Wallet Balance (با تضمین نامنفی بودن، علامت‌گذاری صحیح در معین تراکنش‌ها، و صدور سند دوبل)
     adjustWallet(id, { amount, type = 'CREDIT', note = 'افزایش شارژ دستی' }) {
         const cust = db.prepare(`SELECT wallet_balance FROM customers WHERE id = ?`).get(id);
         if (!cust) throw new Error('مشتری یافت نشد');
@@ -263,15 +286,48 @@ const crmService = {
         if (!allowedTypes.includes(finalType)) finalType = 'DEPOSIT';
 
         const isPositive = finalType === 'DEPOSIT' || finalType === 'REFUND' || finalType === 'GIFT';
-        const delta = isPositive ? Math.abs(amount) : -Math.abs(amount);
-        const newBalance = Math.max(0, cust.wallet_balance + delta);
+        const numAmount = Math.abs(amount);
+
+        if (!numAmount || numAmount <= 0) {
+            throw new Error('مبلغ باید بزرگتر از صفر باشد.');
+        }
+
+        if (!isPositive && numAmount > cust.wallet_balance) {
+            throw new Error(`موجودی کیف پول برای کسر کافی نیست. موجودی فعلی: ${cust.wallet_balance}، درخواستی: ${numAmount}`);
+        }
+
+        const delta = isPositive ? numAmount : -numAmount;
+        const newBalance = cust.wallet_balance + delta;
 
         const tx = db.transaction(() => {
             db.prepare(`UPDATE customers SET wallet_balance = ? WHERE id = ?`).run(newBalance, id);
+
+            // Record signed amount in wallet_transactions so SUM(amount) matches wallet_balance
             db.prepare(`
                 INSERT INTO wallet_transactions (customer_id, type, amount, description)
                 VALUES (?, ?, ?, ?)
-            `).run(id, finalType, Math.abs(amount), note);
+            `).run(id, finalType, delta, note);
+
+            // Double-Entry Accounting:
+            // For deposit: Dr 102 (Bank) / Cr 205 (Customer Wallet Liability)
+            // For withdrawal: Dr 205 (Customer Wallet Liability) / Cr 102 (Bank)
+            const accBank = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '102'`).get().id;
+            const accWallet = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '205'`).get() || { id: accBank };
+
+            const entryNumber = `JE-WLT-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+            const jRes = db.prepare(`
+                INSERT INTO journal_entries (entry_number, date, description, reference_type, reference_id, is_posted, created_by)
+                VALUES (?, DATE('now'), ?, 'WALLET_ADJUSTMENT', ?, 1, 1)
+            `).run(entryNumber, `سند تعدیل کیف پول مشتری (${finalType})`, id);
+            const jId = jRes.lastInsertRowid;
+
+            if (isPositive) {
+                db.prepare(`INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, ?, 0, 'دریافت وجه بابت شارژ کیف پول')`).run(jId, accBank, numAmount);
+                db.prepare(`INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, 0, ?, 'افزایش تعهد بدهی کیف پول مشتری')`).run(jId, accWallet.id, numAmount);
+            } else {
+                db.prepare(`INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, ?, 0, 'کاهش تعهد بدهی کیف پول مشتری')`).run(jId, accWallet.id, numAmount);
+                db.prepare(`INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, 0, ?, 'پرداخت وجه بابت تسویه کیف پول')`).run(jId, accBank, numAmount);
+            }
         });
         tx();
 
