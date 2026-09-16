@@ -18,6 +18,7 @@ const crmService = require('./services/crmService');
 const biService = require('./services/biService');
 const reportService = require('./services/reportService');
 const marketingService = require('./services/marketingService');
+const reconciliationService = require('./services/reconciliationService');
 
 const app = express();
 const PORT = process.env.PORT || 4200; // Dedicated non-conflicting port
@@ -1169,6 +1170,16 @@ process.on('SIGBREAK', () => {
 
 // Keep-alive heartbeat
 setInterval(() => {}, 1000 * 60 * 60);
+
+// ==================== Admin: Reconciliation Engine ====================
+app.get('/api/admin/reconciliation', (req, res) => {
+    try {
+        const results = reconciliationService.runAll();
+        res.json({ success: true, data: results });
+    } catch (err) {
+        res.status(500).json({ success: false, error: { code: 'RECONCILIATION_ERROR', message: err.message } });
+    }
+});
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`====================================================`);
