@@ -19,6 +19,7 @@ const biService = require('./services/biService');
 const reportService = require('./services/reportService');
 const marketingService = require('./services/marketingService');
 const reconciliationService = require('./services/reconciliationService');
+const procurementService = require('./services/procurementService');
 
 const app = express();
 const PORT = process.env.PORT || 4200; // Dedicated non-conflicting port
@@ -409,61 +410,53 @@ app.get('/api/suppliers', (req, res) => {
 
 app.post('/api/purchases', (req, res) => {
     try {
-        const { supplierId, warehouseId = 1, items = [], notes = '' } = req.body;
-        const poNumber = `PO-${Date.now().toString().slice(-6)}`;
-
-        const result = db.transaction(() => {
-            let totalAmount = 0;
-            for (const item of items) totalAmount += (item.unitCost * item.quantity);
-
-            const poRes = db.prepare(`
-                INSERT INTO purchase_orders (po_number, supplier_id, warehouse_id, status, total_amount, paid_amount, notes)
-                VALUES (?, ?, ?, 'RECEIVED', ?, 0, ?)
-            `).run(poNumber, supplierId, warehouseId, totalAmount, notes);
-            const poId = poRes.lastInsertRowid;
-
-            for (const item of items) {
-                // Insert PO item
-                db.prepare(`
-                    INSERT INTO purchase_order_items (purchase_order_id, product_variant_id, batch_number, manufacture_date, expiry_date, quantity, unit_cost, total_cost)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                `).run(poId, item.variantId, item.batchNumber, item.manufactureDate || null, item.expiryDate, item.quantity, item.unitCost, item.unitCost * item.quantity);
-
-                // Create or add to batch
-                const batchRes = db.prepare(`
-                    INSERT INTO inventory_batches (product_variant_id, warehouse_id, batch_number, manufacture_date, expiry_date, quantity, purchase_price, supplier_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                `).run(item.variantId, warehouseId, item.batchNumber, item.manufactureDate || null, item.expiryDate, item.quantity, item.unitCost, supplierId);
-                const batchId = batchRes.lastInsertRowid;
-
-                // Record stock transaction
-                db.prepare(`
-                    INSERT INTO stock_transactions (product_variant_id, batch_id, warehouse_id, transaction_type, quantity, unit_cost, reference_type, reference_id, employee_id, note)
-                    VALUES (?, ?, ?, 'PURCHASE', ?, ?, 'PURCHASE_ORDER', ?, 1, 'ورود کالا بر اساس فاکتور خرید')
-                `).run(item.variantId, batchId, warehouseId, item.quantity, item.unitCost, poId);
-            }
-
-            // Automatic Double-Entry Accounting:
-            // Debit 103 (Merchandise Inventory)
-            // Credit 201 (Accounts Payable)
-            const accInv = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '103'`).get().id;
-            const accAP = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '201'`).get().id;
-
-            const jRes = db.prepare(`
-                INSERT INTO journal_entries (entry_number, date, description, reference_type, reference_id, is_posted, created_by)
-                VALUES (?, DATE('now'), ?, 'PURCHASE', ?, 1, 1)
-            `).run(`JE-PO-${poNumber}`, `سند فاکتور خرید ${poNumber}`, poId);
-            const jId = jRes.lastInsertRowid;
-
-            db.prepare(`INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, ?, 0, 'افزایش موجودی کالا بابت خرید')`).run(jId, accInv, totalAmount);
-            db.prepare(`INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, 0, ?, 'بستانکاری تأمین‌کننده بابت خرید')`).run(jId, accAP, totalAmount);
-
-            return { poId, poNumber, totalAmount };
-        })();
-
+        const result = procurementService.createPurchaseOrder(req.body);
         res.json({ success: true, data: result });
     } catch (err) {
         res.status(400).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/suppliers/:id/payments', (req, res) => {
+    try {
+        const result = procurementService.recordSupplierPayment({
+            supplierId: Number(req.params.id),
+            ...req.body
+        });
+        res.json({ success: true, data: result });
+    } catch (err) {
+        res.status(400).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/purchases/:id/return', (req, res) => {
+    try {
+        const result = procurementService.recordPurchaseReturn({
+            purchaseOrderId: Number(req.params.id),
+            ...req.body
+        });
+        res.json({ success: true, data: result });
+    } catch (err) {
+        res.status(400).json({ success: false, error: err.message });
+    }
+});
+
+app.get('/api/suppliers/:id/ledger', (req, res) => {
+    try {
+        const ledger = procurementService.getSupplierLedger(Number(req.params.id));
+        if (!ledger) return res.status(404).json({ success: false, error: 'تأمین‌کننده یافت نشد.' });
+        res.json({ success: true, data: ledger });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.get('/api/suppliers/aging', (req, res) => {
+    try {
+        const aging = procurementService.getSupplierAging(req.query.supplierId ? Number(req.query.supplierId) : null);
+        res.json({ success: true, data: aging });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 

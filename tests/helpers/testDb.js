@@ -278,14 +278,14 @@ function seedCustomer(db, {
  */
 function seedSupplier(db, {
     name = 'شرکت پخش زیبایی ماهان',
-    contactPerson = 'مهندس شریفی',
-    phone = '02188997766'
+    phone = '02188997766',
+    mobile = '09121112233'
 } = {}) {
     const res = db.prepare(`
-        INSERT INTO suppliers (name, contact_person, phone, is_active)
+        INSERT INTO suppliers (name, phone, mobile, is_active)
         VALUES (?, ?, ?, 1)
-    `).run(name, contactPerson, phone);
-    return { id: res.lastInsertRowid, name, contactPerson, phone };
+    `).run(name, phone, mobile);
+    return { id: res.lastInsertRowid, name, phone, mobile };
 }
 
 /**
