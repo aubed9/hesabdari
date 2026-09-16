@@ -339,7 +339,8 @@ CREATE TABLE IF NOT EXISTS order_items (
     unit_cost REAL NOT NULL,
     discount_amount REAL DEFAULT 0,
     total_price REAL NOT NULL,
-    is_returned BOOLEAN DEFAULT 0
+    is_returned BOOLEAN DEFAULT 0,
+    returned_quantity INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS payments (

@@ -538,71 +538,236 @@ const posService = {
         return { ...order, items, payments };
     },
 
-    // Process Sales Return (با کنترل بسته باز شده و پلمپ)
+    // Process Sales Return (با کنترل بسته باز شده و پلمپ، ضد دابل‌ریترن و اسناد معکوس دوبل)
     processReturn({ originalOrderId, customerId, employeeId, items, refundMethod = 'WALLET_CREDIT', reason = '' }) {
         const returnTx = db.transaction(() => {
-            const retNumber = `RET-${Date.now().toString().slice(-6)}`;
-            let totalRefund = 0;
-
-            for (const item of items) {
-                totalRefund += item.refundAmount;
+            // 1. Validate original order
+            const originalOrder = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(originalOrderId);
+            if (!originalOrder) {
+                throw new Error(`سفارش مرجع با شناسه ${originalOrderId} یافت نشد.`);
+            }
+            if (originalOrder.status === 'CANCELLED') {
+                throw new Error(`امکان مرجوعی برای فاکتور باطل‌شده وجود ندارد.`);
             }
 
+            const effectiveCustomerId = customerId || originalOrder.customer_id;
+            const retNumber = `RET-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+            const returnCreatedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+            let totalRefund = 0;
+            let totalRestockCost = 0;
+            let totalDamagedCost = 0;
+            const processedItems = [];
+
+            // 2. Validate items against original order items & anti-double-return
+            for (const item of items) {
+                const orderItem = db.prepare(`
+                    SELECT * FROM order_items WHERE id = ? AND order_id = ?
+                `).get(item.orderItemId, originalOrderId);
+
+                if (!orderItem) {
+                    throw new Error(`آیتم فاکتور با شناسه ${item.orderItemId} در سفارش مرجع یافت نشد.`);
+                }
+
+                const alreadyReturned = orderItem.returned_quantity || 0;
+                const returnableQty = orderItem.quantity - alreadyReturned;
+
+                if (item.quantity <= 0) {
+                    throw new Error(`تعداد مرجوعی باید بزرگتر از صفر باشد.`);
+                }
+                if (item.quantity > returnableQty) {
+                    throw new Error(`تعداد درخواستی مرجوعی (${item.quantity}) بیش از تعداد باقی‌مانده مجاز (${returnableQty}) است.`);
+                }
+
+                // Calculate refund amount SERVER-SIDE (unit_price minus proportionate discount)
+                const unitDiscount = orderItem.discount_amount ? (orderItem.discount_amount / orderItem.quantity) : 0;
+                const effectiveUnitPrice = Math.max(0, orderItem.unit_price - unitDiscount);
+                const lineRefund = roundMoney(effectiveUnitPrice * item.quantity);
+                const lineCost = roundMoney(orderItem.unit_cost * item.quantity);
+
+                totalRefund += lineRefund;
+
+                processedItems.push({
+                    orderItemId: orderItem.id,
+                    variantId: orderItem.product_variant_id,
+                    batchId: item.batchId || orderItem.batch_id,
+                    quantity: item.quantity,
+                    isOpened: Boolean(item.isOpened),
+                    isRestockable: Boolean(item.isRestockable),
+                    refundAmount: lineRefund,
+                    unitCost: orderItem.unit_cost,
+                    totalCost: lineCost
+                });
+
+                // Update order_item returned_quantity
+                const newReturnedQty = alreadyReturned + item.quantity;
+                const isFullyReturned = newReturnedQty >= orderItem.quantity ? 1 : 0;
+                db.prepare(`
+                    UPDATE order_items 
+                    SET returned_quantity = ?, is_returned = ?
+                    WHERE id = ?
+                `).run(newReturnedQty, isFullyReturned, orderItem.id);
+            }
+
+            // 3. Insert into returns table
             const retRes = db.prepare(`
-                INSERT INTO returns (return_number, original_order_id, customer_id, employee_id, total_refund, refund_method, reason, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'APPROVED')
-            `).run(retNumber, originalOrderId, customerId || null, employeeId || 1, totalRefund, refundMethod, reason);
+                INSERT INTO returns (return_number, original_order_id, customer_id, employee_id, total_refund, refund_method, reason, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'APPROVED', ?)
+            `).run(retNumber, originalOrderId, effectiveCustomerId || null, employeeId || 1, totalRefund, refundMethod, reason, returnCreatedAt);
             const returnId = retRes.lastInsertRowid;
 
-            for (const item of items) {
+            // 4. Insert return_items & adjust inventory
+            for (const pi of processedItems) {
                 db.prepare(`
                     INSERT INTO return_items (return_id, order_item_id, product_variant_id, batch_id, quantity, is_opened, is_restockable, refund_amount)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                `).run(returnId, item.orderItemId, item.variantId, item.batchId, item.quantity, item.isOpened ? 1 : 0, item.isRestockable ? 1 : 0, item.refundAmount);
+                `).run(returnId, pi.orderItemId, pi.variantId, pi.batchId, pi.quantity, pi.isOpened ? 1 : 0, pi.isRestockable ? 1 : 0, pi.refundAmount);
 
-                if (item.isRestockable) {
-                    // Restock unopened goods into batch
-                    db.prepare(`UPDATE inventory_batches SET quantity = quantity + ? WHERE id = ?`).run(item.quantity, item.batchId);
+                if (pi.isRestockable && pi.batchId) {
+                    // Restock unopened goods into inventory batch
+                    db.prepare(`UPDATE inventory_batches SET quantity = quantity + ? WHERE id = ?`).run(pi.quantity, pi.batchId);
                     db.prepare(`
-                        INSERT INTO stock_transactions (product_variant_id, batch_id, warehouse_id, transaction_type, quantity, unit_cost, reference_type, reference_id, employee_id, note)
-                        VALUES (?, ?, 1, 'SALE_RETURN', ?, ?, 'RETURN', ?, ?, 'مرجوعی کالا به انبار')
-                    `).run(item.variantId, item.batchId, item.quantity, item.unitCost || 0, returnId, employeeId || 1);
+                        INSERT INTO stock_transactions (product_variant_id, batch_id, warehouse_id, transaction_type, quantity, unit_cost, reference_type, reference_id, employee_id, note, created_at)
+                        VALUES (?, ?, 1, 'SALE_RETURN', ?, ?, 'RETURN', ?, ?, 'مرجوعی کالا به انبار', ?)
+                    `).run(pi.variantId, pi.batchId, pi.quantity, pi.unitCost, returnId, employeeId || 1, returnCreatedAt);
+                    totalRestockCost += pi.totalCost;
                 } else {
-                    // Opened cosmetics must NOT be resold! Move to damaged goods
+                    // Opened cosmetics move to damaged stock (write-off)
                     db.prepare(`
-                        INSERT INTO stock_transactions (product_variant_id, batch_id, warehouse_id, transaction_type, quantity, unit_cost, reference_type, reference_id, employee_id, note)
-                        VALUES (?, ?, 1, 'DAMAGE', ?, ?, 'RETURN_DAMAGED', ?, ?, 'کالای مرجوعی باز شده - انتقال به ضایعات آرایشی')
-                    `).run(item.variantId, item.batchId, -item.quantity, item.unitCost || 0, returnId, employeeId || 1);
+                        INSERT INTO stock_transactions (product_variant_id, batch_id, warehouse_id, transaction_type, quantity, unit_cost, reference_type, reference_id, employee_id, note, created_at)
+                        VALUES (?, ?, 1, 'DAMAGE', ?, ?, 'RETURN_DAMAGED', ?, ?, 'کالای مرجوعی باز شده - انتقال به ضایعات آرایشی', ?)
+                    `).run(pi.variantId, pi.batchId || null, -pi.quantity, pi.unitCost, returnId, employeeId || 1, returnCreatedAt);
+                    totalDamagedCost += pi.totalCost;
                 }
             }
 
-            // Refund to wallet if requested
-            if (customerId && refundMethod === 'WALLET_CREDIT') {
-                db.prepare(`UPDATE customers SET wallet_balance = wallet_balance + ? WHERE id = ?`).run(totalRefund, customerId);
-                db.prepare(`
-                    INSERT INTO wallet_transactions (customer_id, type, amount, order_id, description)
-                    VALUES (?, 'REFUND', ?, ?, 'استرداد وجه مرجوعی به کیف پول')
-                `).run(customerId, totalRefund, originalOrderId);
+            // 5. Customer Wallet & Loyalty adjustments
+            if (effectiveCustomerId) {
+                if (refundMethod === 'WALLET_CREDIT') {
+                    db.prepare(`UPDATE customers SET wallet_balance = wallet_balance + ? WHERE id = ?`).run(totalRefund, effectiveCustomerId);
+                    db.prepare(`
+                        INSERT INTO wallet_transactions (customer_id, type, amount, order_id, description, created_at)
+                        VALUES (?, 'REFUND', ?, ?, 'استرداد وجه مرجوعی به کیف پول', ?)
+                    `).run(effectiveCustomerId, totalRefund, originalOrderId, returnCreatedAt);
+                }
+
+                // Proportionally reverse loyalty points and CLV
+                const pointsToReverse = Math.floor(totalRefund / 100000) * 10;
+                if (pointsToReverse > 0) {
+                    db.prepare(`
+                        UPDATE customers 
+                        SET loyalty_points = MAX(0, loyalty_points - ?),
+                            clv = MAX(0, clv - ?)
+                        WHERE id = ?
+                    `).run(pointsToReverse, totalRefund, effectiveCustomerId);
+
+                    db.prepare(`
+                        INSERT INTO loyalty_transactions (customer_id, type, points, order_id, description, created_at)
+                        VALUES (?, 'GIFT_ADJUST', ?, ?, 'کسر امتیاز بابت مرجوعی کالا', ?)
+                    `).run(effectiveCustomerId, -pointsToReverse, originalOrderId, returnCreatedAt);
+                }
             }
 
-            return { returnId, returnNumber: retNumber, totalRefund };
+            // 6. Double-Entry Accounting Journal for Return
+            const dateStr = returnCreatedAt.split(' ')[0];
+            const entryNumber = `JE-RET-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+            const jRes = db.prepare(`
+                INSERT INTO journal_entries (entry_number, date, description, reference_type, reference_id, is_posted, created_by, created_at)
+                VALUES (?, ?, ?, 'SALE_RETURN', ?, 1, ?, ?)
+            `).run(entryNumber, dateStr, `سند برگشت از فروش مرجوعی ${retNumber} فاکتور اصلی ${originalOrder.order_number}`, returnId, employeeId || 1, returnCreatedAt);
+            const jId = jRes.lastInsertRowid;
+
+            const accCash = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '101'`).get().id;
+            const accBank = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '102'`).get().id;
+            const accInv = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '103'`).get().id;
+            const accWallet = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '205'`).get() || { id: accBank };
+            const accRetRev = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '404'`).get() || db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '401'`).get();
+            const accCOGS = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '501'`).get().id;
+            const accDamaged = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '607'`).get() || { id: accCOGS };
+
+            // Determine refund settlement credit account
+            let refundCreditAccId;
+            if (refundMethod === 'WALLET_CREDIT') {
+                refundCreditAccId = accWallet.id;
+            } else if (refundMethod === 'CASH') {
+                refundCreditAccId = accCash;
+            } else {
+                refundCreditAccId = accBank;
+            }
+
+            const insertLine = db.prepare(`
+                INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit, description)
+                VALUES (?, ?, ?, ?, ?)
+            `);
+
+            // Dr Sales Returns (404/401)
+            insertLine.run(jId, accRetRev.id, totalRefund, 0, `برگشت از فروش مرجوعی ${retNumber}`);
+            // Cr Cash/Bank/Wallet Liability
+            insertLine.run(jId, refundCreditAccId, 0, totalRefund, `استرداد وجه ${refundMethod} بابت مرجوعی ${retNumber}`);
+
+            // Inventory / COGS Reversals
+            if (totalRestockCost > 0) {
+                // Dr Merchandise Inventory (103)
+                insertLine.run(jId, accInv, totalRestockCost, 0, `برگشت کالای سالم به موجودی انبار`);
+                // Cr Cost of Goods Sold (501)
+                insertLine.run(jId, accCOGS, 0, totalRestockCost, `تعدیل بهای تمام شده کالای مرجوعی`);
+            }
+            if (totalDamagedCost > 0) {
+                // Dr Damaged & Expired Waste (607)
+                insertLine.run(jId, accDamaged.id, totalDamagedCost, 0, `هزینه ضایعات کالای مرجوعی باز شده`);
+                // Cr Cost of Goods Sold (501)
+                insertLine.run(jId, accCOGS, 0, totalDamagedCost, `تعدیل بهای تمام شده کالای ضایعاتی`);
+            }
+
+            // 7. Audit Log
+            db.prepare(`
+                INSERT INTO audit_logs (employee_id, action, entity, entity_id, details, created_at)
+                VALUES (?, 'SALE_RETURN', 'returns', ?, ?, ?)
+            `).run(employeeId || 1, returnId, JSON.stringify({
+                returnNumber: retNumber,
+                originalOrderId,
+                totalRefund,
+                itemsCount: processedItems.length,
+                refundMethod
+            }), returnCreatedAt);
+
+            return {
+                returnId,
+                returnNumber: retNumber,
+                totalRefund,
+                refundMethod,
+                restockedCost: totalRestockCost,
+                damagedCost: totalDamagedCost,
+                createdAt: returnCreatedAt
+            };
         });
 
         return returnTx();
     },
 
-    // Process Exchange Workflow: Return old items + Buy new items in single step
+    // Process Exchange Workflow: Return old items + Buy new items in single atomic step
     processExchange({ returnData, newOrderData }) {
         const exchangeTx = db.transaction(() => {
             const retResult = this.processReturn(returnData);
             const newOrderResult = this.createOrder(newOrderData);
             const difference = newOrderResult.totalAmount - retResult.totalRefund;
 
-            const exchNumber = `EXC-${Date.now().toString().slice(-6)}`;
+            const exchNumber = `EXC-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
             db.prepare(`
                 INSERT INTO exchanges (exchange_number, return_id, new_order_id, difference_amount, settlement_status)
                 VALUES (?, ?, ?, ?, 'SETTLED')
             `).run(exchNumber, retResult.returnId, newOrderResult.orderId, difference);
+
+            // Audit log for exchange
+            db.prepare(`
+                INSERT INTO audit_logs (employee_id, action, entity, entity_id, details)
+                VALUES (?, 'EXCHANGE', 'exchanges', ?, ?)
+            `).run(newOrderData.employeeId || 1, retResult.returnId, JSON.stringify({
+                exchangeNumber: exchNumber,
+                returnNumber: retResult.returnNumber,
+                orderNumber: newOrderResult.orderNumber,
+                differenceAmount: difference
+            }));
 
             return {
                 exchangeNumber: exchNumber,
@@ -610,7 +775,8 @@ const posService = {
                 orderNumber: newOrderResult.orderNumber,
                 differenceAmount: difference,
                 isCustomerPaying: difference > 0,
-                isCustomerRefunded: difference < 0
+                isCustomerRefunded: difference < 0,
+                isEven: difference === 0
             };
         });
 

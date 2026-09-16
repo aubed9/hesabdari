@@ -89,6 +89,11 @@ function createFreshDatabase() {
         db.exec(`ALTER TABLE campaigns ADD COLUMN recipients_count INTEGER DEFAULT 0;`);
     }
 
+    const orderItemsInfo = db.prepare(`PRAGMA table_info(order_items)`).all();
+    if (!orderItemsInfo.map(c => c.name).includes('returned_quantity')) {
+        db.exec(`ALTER TABLE order_items ADD COLUMN returned_quantity INTEGER NOT NULL DEFAULT 0;`);
+    }
+
     return db;
 }
 
@@ -118,6 +123,7 @@ function seedBaselineData(db) {
         { code: '401', name: 'Cosmetics Sales Revenue', name_fa: 'درآمد فروش محصولات آرایشی', type: 'REVENUE' },
         { code: '402', name: 'Beauty Consultation & Service Revenue', name_fa: 'درآمد ارائه خدمات و مشاوره', type: 'REVENUE' },
         { code: '403', name: 'Sales Discounts & Allowances', name_fa: 'تخفیفات نقدی فروش', type: 'REVENUE' },
+        { code: '404', name: 'Sales Returns & Allowances', name_fa: 'برگشت از فروش و تخفیفات', type: 'REVENUE' },
         // COGS (500)
         { code: '501', name: 'Cost of Goods Sold (COGS)', name_fa: 'بهای تمام شده کالای فروش رفته (COGS)', type: 'COGS' },
         // Expenses (600)
