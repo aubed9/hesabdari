@@ -2,6 +2,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const { runMigrationsSync } = require('./migrator');
 
 const DB_PATH = path.join(__dirname, 'arayeshi_erp.sqlite3');
 const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
@@ -21,6 +22,9 @@ function initDatabase() {
     try {
         const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
         db.exec(schema);
+
+        // Execute versioned migrations automatically on startup before any HTTP operations
+        runMigrationsSync({ db, verbose: false });
 
         // Seed initial fixed costs if empty
         const fcCount = db.prepare(`SELECT count(*) AS c FROM fixed_costs`).get();
@@ -53,14 +57,50 @@ function initDatabase() {
             }
         }
 
-
-        console.log('✅ SQLite Schema initialized successfully.');
+        console.log('✅ SQLite Schema and migrations initialized successfully.');
     } catch (err) {
-        console.error('❌ Error initializing SQLite schema:', err);
+        console.error('❌ Error initializing SQLite schema & migrations:', err);
         throw err;
     }
 }
 
+// Graceful shutdown handler: checkpoint WAL and safely close database connection
+let isClosing = false;
+function closeDatabaseGracefully(signal) {
+    if (isClosing) return;
+    isClosing = true;
+    try {
+        if (db && db.open) {
+            console.log(`\n🛑 [Database] Checkpointing WAL (TRUNCATE) and closing connection (${signal || 'SHUTDOWN'})...`);
+            try {
+                db.pragma('wal_checkpoint(TRUNCATE)');
+            } catch (walErr) {
+                console.warn(`⚠️ [Database] WAL checkpoint warning: ${walErr.message}`);
+            }
+            db.close();
+            console.log('✅ [Database] Database connection closed cleanly.');
+        }
+    } catch (err) {
+        console.error('❌ [Database] Error during database closure:', err.message);
+    }
+}
+
+// Register signal handlers for clean process shutdown
+process.once('SIGTERM', () => {
+    closeDatabaseGracefully('SIGTERM');
+});
+process.once('SIGINT', () => {
+    closeDatabaseGracefully('SIGINT');
+});
+
+// Also hook into exit to guarantee WAL truncation on normal process termination
+process.once('exit', () => {
+    closeDatabaseGracefully('EXIT');
+});
+
+db.closeDatabaseGracefully = closeDatabaseGracefully;
+
 initDatabase();
 
 module.exports = db;
+

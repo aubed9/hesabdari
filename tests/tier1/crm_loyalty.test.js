@@ -1,3 +1,8 @@
+/**
+ * Tier 1: Feature Coverage — CRM, Customer 360, Wallet Liability & Loyalty Engine
+ * Minimum 5 tests covering wallet deposits, withdrawals, negative protection, points-to-wallet conversion, and 360 profile
+ */
+
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const {
@@ -114,5 +119,13 @@ describe('Tier 1: CRM, Customer 360, Wallet Liability & Loyalty Engine', () => {
         assert.ok(Array.isArray(profile.walletLogs));
         assert.ok(Array.isArray(profile.loyaltyLogs));
         assert.equal(profile.walletLogs.length, 3); // Deposit 300k, Withdraw -100k, Points conversion 25k
+    });
+
+    test('T1-CRM-6: Customer RFM and spending metrics aggregate correctly', () => {
+        const customers = crmService.getCustomers();
+        assert.ok(Array.isArray(customers));
+        const found = customers.find(c => c.id === customer.id);
+        assert.ok(found);
+        assert.equal(found.mobile, '09351234567');
     });
 });

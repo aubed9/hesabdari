@@ -306,6 +306,13 @@ async function run90DaySimulation() {
 }
 
 if (require.main === module) {
+    const isProductionDb = !process.env.TEST_DB && !process.argv.includes('--allow-production');
+    if (isProductionDb) {
+        console.warn('⚠️ اخطار: اجرای مستقیم شبیه‌سازی روی دیتابیس عملیاتی بدون فلگ --allow-production غیرفعال است.');
+        console.warn('جهت اجرای ایمن در محیط ایزوله از npm test یا tests/tier4/scenario6_90_day_business_simulation.test.js استفاده کنید.');
+        console.warn('جهت اجرای اجباری روی دیتابیس فعلی: node scripts/simulate90Days.js --allow-production');
+        process.exit(0);
+    }
     run90DaySimulation().catch(err => {
         console.error('Fatal simulation error:', err);
         process.exit(1);

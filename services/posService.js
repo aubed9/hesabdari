@@ -122,7 +122,7 @@ const posService = {
     },
 
     // Create POS Order with FEFO batch allocation & automatic accounting journal
-    createOrder({ customerId, employeeId, cashSessionId, items, discountAmount = 0, discountReason = '', payments = [], channel = 'STORE_POS', orderType = 'SALE', notes = '', orderDate = null }) {
+    createOrder({ customerId, employeeId, cashSessionId, items, discountAmount = 0, discountReason = '', payments, channel = 'STORE_POS', orderType = 'SALE', notes = '', orderDate = null }) {
         const orderNumber = `ORD-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
         const orderCreatedAt = orderDate || new Date().toISOString().replace('T', ' ').slice(0, 19);
         
@@ -178,11 +178,20 @@ const posService = {
             // Case 2: LAYAWAY (سفارش رزرو شده با بیعانه)
             if (orderType === 'LAYAWAY') {
                 for (const item of items) {
+                    if (!item.quantity || item.quantity <= 0) {
+                        throw new Error('تعداد کالا در سفارش بیعانه باید بزرگتر از صفر باشد.');
+                    }
+                    const variant = db.prepare(`SELECT selling_price FROM product_variants WHERE id = ?`).get(item.variantId);
+                    if (!variant) throw new Error(`محصول با شناسه ${item.variantId} یافت نشد.`);
+                    const unitPrice = (item.unitPrice !== undefined && item.allowPriceOverride) ? item.unitPrice : (variant.selling_price || item.unitPrice || 0);
+
                     let remainingToFulfill = item.quantity;
                     const batches = db.prepare(`
                         SELECT id, batch_number, expiry_date, quantity, reserved_quantity, purchase_price
                         FROM inventory_batches
-                        WHERE product_variant_id = ? AND (quantity - reserved_quantity) > 0
+                        WHERE product_variant_id = ? 
+                          AND (quantity - reserved_quantity) > 0
+                          AND (expiry_date IS NULL OR expiry_date >= DATE('now'))
                         ORDER BY expiry_date ASC
                     `).all(item.variantId);
 
@@ -198,17 +207,34 @@ const posService = {
                             variantId: item.variantId,
                             batchId: b.id,
                             quantity: takeQty,
-                            unitPrice: item.unitPrice,
+                            unitPrice: unitPrice,
                             unitCost: b.purchase_price,
-                            totalPrice: roundMoney(item.unitPrice * takeQty)
+                            totalPrice: roundMoney(unitPrice * takeQty)
                         });
 
-                        subtotal += roundMoney(item.unitPrice * takeQty);
+                        subtotal += roundMoney(unitPrice * takeQty);
                         totalCogs += roundMoney(b.purchase_price * takeQty);
                         remainingToFulfill -= takeQty;
                     }
                 }
                 const totalAmount = Math.max(0, roundMoney(subtotal - discountAmount));
+
+                // Deterministic discount allocation across lines
+                let layawayDiscountSum = 0;
+                for (let i = 0; i < allocatedItems.length; i++) {
+                    const it = allocatedItems[i];
+                    let lineDiscount = 0;
+                    if (subtotal > 0 && discountAmount > 0) {
+                        if (i === allocatedItems.length - 1) {
+                            lineDiscount = discountAmount - layawayDiscountSum;
+                        } else {
+                            lineDiscount = Math.round((it.totalPrice / subtotal) * discountAmount);
+                            layawayDiscountSum += lineDiscount;
+                        }
+                    }
+                    it.discountAmount = lineDiscount;
+                }
+
                 const orderRes = db.prepare(`
                     INSERT INTO orders (
                         order_number, order_type, channel, customer_id, employee_id,
@@ -221,8 +247,8 @@ const posService = {
                 for (const alloc of allocatedItems) {
                     db.prepare(`
                         INSERT INTO order_items (order_id, product_variant_id, batch_id, quantity, unit_price, unit_cost, discount_amount, total_price)
-                        VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-                    `).run(orderId, alloc.variantId, alloc.batchId, alloc.quantity, alloc.unitPrice, alloc.unitCost, alloc.totalPrice);
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    `).run(orderId, alloc.variantId, alloc.batchId, alloc.quantity, alloc.unitPrice, alloc.unitCost, alloc.discountAmount || 0, alloc.totalPrice);
                 }
 
                 // Deposit payment if any
@@ -247,21 +273,28 @@ const posService = {
 
             // Case 3: SALE (فروش قطعی با کسر انبار به روش FEFO و صدور سند دوبل)
             for (const item of items) {
-                let remainingToFulfill = item.quantity;
-                const unitPrice = item.unitPrice;
+                if (!item.quantity || item.quantity <= 0) {
+                    throw new Error('تعداد کالا باید بزرگتر از صفر باشد.');
+                }
+                const variant = db.prepare(`SELECT selling_price FROM product_variants WHERE id = ?`).get(item.variantId);
+                if (!variant) throw new Error(`محصول با شناسه ${item.variantId} یافت نشد.`);
+                const unitPrice = (item.unitPrice !== undefined && item.allowPriceOverride) ? item.unitPrice : (variant.selling_price || item.unitPrice || 0);
 
-                // Fetch available batches ordered by expiry_date ASC (FEFO)
-                // CRITICAL: Use (quantity - reserved_quantity) to exclude layaway reservations
+                let remainingToFulfill = item.quantity;
+
+                // Fetch available batches ordered by expiry_date ASC (FEFO) excluding expired stock
                 const batches = db.prepare(`
                     SELECT id, batch_number, expiry_date, quantity, reserved_quantity, purchase_price
                     FROM inventory_batches
-                    WHERE product_variant_id = ? AND (quantity - reserved_quantity) > 0
+                    WHERE product_variant_id = ? 
+                      AND (quantity - reserved_quantity) > 0
+                      AND (expiry_date IS NULL OR expiry_date >= DATE('now'))
                     ORDER BY expiry_date ASC
                 `).all(item.variantId);
 
                 const totalAvail = batches.reduce((sum, b) => sum + (b.quantity - b.reserved_quantity), 0);
                 if (totalAvail < remainingToFulfill) {
-                    throw new Error(`موجودی برای محصول با شناسه ${item.variantId} کافی نیست. موجود (غیررزرو): ${totalAvail}، درخواستی: ${remainingToFulfill}`);
+                    throw new Error(`موجودی معتبر (غیرمنقضی و غیررزرو) برای محصول با شناسه ${item.variantId} کافی نیست. موجود: ${totalAvail}، درخواستی: ${remainingToFulfill}`);
                 }
 
                 for (const b of batches) {
@@ -290,8 +323,27 @@ const posService = {
 
             const totalAmount = Math.max(0, roundMoney(subtotal - discountAmount));
 
+            // Deterministic discount allocation across order lines
+            let saleDiscountSum = 0;
+            for (let i = 0; i < allocatedItems.length; i++) {
+                const it = allocatedItems[i];
+                let lineDiscount = 0;
+                if (subtotal > 0 && discountAmount > 0) {
+                    if (i === allocatedItems.length - 1) {
+                        lineDiscount = discountAmount - saleDiscountSum;
+                    } else {
+                        lineDiscount = Math.round((it.totalPrice / subtotal) * discountAmount);
+                        saleDiscountSum += lineDiscount;
+                    }
+                }
+                it.discountAmount = lineDiscount;
+            }
+
             // Compute real payment status
-            const totalPaid = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+            const finalPayments = (payments === undefined || payments === null) 
+                ? [{ method: 'CARD', amount: totalAmount }] 
+                : payments;
+            const totalPaid = finalPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
             let paymentStatus;
             if (totalPaid >= totalAmount) {
                 paymentStatus = 'PAID';
@@ -319,8 +371,8 @@ const posService = {
             for (const alloc of allocatedItems) {
                 db.prepare(`
                     INSERT INTO order_items (order_id, product_variant_id, batch_id, quantity, unit_price, unit_cost, discount_amount, total_price)
-                    VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-                `).run(orderId, alloc.variantId, alloc.batchId, alloc.quantity, alloc.unitPrice, alloc.unitCost, alloc.totalPrice);
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                `).run(orderId, alloc.variantId, alloc.batchId, alloc.quantity, alloc.unitPrice, alloc.unitCost, alloc.discountAmount || 0, alloc.totalPrice);
 
                 db.prepare(`
                     INSERT INTO stock_transactions (
@@ -368,13 +420,8 @@ const posService = {
             }
 
             // 3. Insert Payments
-            if (payments.length === 0) {
-                db.prepare(`
-                    INSERT INTO payments (order_id, payment_method, amount, reference_code, created_at)
-                    VALUES (?, 'CARD', ?, ?, ?)
-                `).run(orderId, totalAmount, `POS-${Math.floor(100000 + Math.random() * 900000)}`, orderCreatedAt);
-            } else {
-                for (const p of payments) {
+            for (const p of finalPayments) {
+                if (p.amount > 0) {
                     const method = p.method === 'CARD_TO_CARD' ? 'ONLINE' : p.method;
                     const refCode = p.method === 'CARD_TO_CARD' 
                         ? `کارت‌به‌کارت ${p.ref ? `[پیگیری: ${p.ref}]` : ''}` 
@@ -405,13 +452,44 @@ const posService = {
                 }
 
                 // If paid by wallet, deduct wallet balance
-                const walletPay = payments.find(p => p.method === 'WALLET');
+                const walletPay = finalPayments.find(p => p.method === 'WALLET');
                 if (walletPay && walletPay.amount > 0) {
+                    const cust = db.prepare(`SELECT wallet_balance FROM customers WHERE id = ?`).get(customerId);
+                    if (!cust) {
+                        throw new Error('Constraint violation: مشتری یافت نشد');
+                    }
+                    if (cust.wallet_balance < walletPay.amount) {
+                        throw new Error('Constraint violation: موجودی کیف پول برای این پرداخت کافی نیست');
+                    }
                     db.prepare(`UPDATE customers SET wallet_balance = wallet_balance - ? WHERE id = ?`).run(walletPay.amount, customerId);
                     db.prepare(`
                         INSERT INTO wallet_transactions (customer_id, type, amount, order_id, description, created_at)
                         VALUES (?, 'WITHDRAW', ?, ?, 'پرداخت با کیف پول در فاکتور', ?)
                     `).run(customerId, -walletPay.amount, orderId, orderCreatedAt);
+                }
+
+                // If paid by points, deduct loyalty points
+                const pointsPay = finalPayments.find(p => p.method === 'POINTS');
+                if (pointsPay && pointsPay.amount > 0) {
+                    const cust = db.prepare(`SELECT loyalty_points FROM customers WHERE id = ?`).get(customerId);
+                    const pointsNeeded = Math.ceil(pointsPay.amount / 500);
+                    if (!cust || cust.loyalty_points < pointsNeeded) {
+                        throw new Error(`امتیاز وفاداری کافی نیست. نیاز به ${pointsNeeded} امتیاز، موجود: ${cust ? cust.loyalty_points : 0}`);
+                    }
+                    db.prepare(`UPDATE customers SET loyalty_points = loyalty_points - ? WHERE id = ?`).run(pointsNeeded, customerId);
+                    db.prepare(`
+                        INSERT INTO loyalty_transactions (customer_id, type, points, order_id, description, created_at)
+                        VALUES (?, 'REDEEM', ?, ?, 'استفاده از امتیاز برای خرید فاکتور', ?)
+                    `).run(customerId, -pointsNeeded, orderId, orderCreatedAt);
+                }
+            } else {
+                const walletPay = finalPayments.find(p => p.method === 'WALLET');
+                if (walletPay && walletPay.amount > 0) {
+                    throw new Error('برای پرداخت با کیف پول انتخاب مشتری الزامی است');
+                }
+                const pointsPay = finalPayments.find(p => p.method === 'POINTS');
+                if (pointsPay && pointsPay.amount > 0) {
+                    throw new Error('برای پرداخت با امتیاز وفاداری انتخاب مشتری الزامی است');
                 }
             }
 
@@ -427,13 +505,12 @@ const posService = {
             const accCash = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '101'`).get().id;
             const accBank = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '102'`).get().id;
             const accInv = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '103'`).get().id;
+            const accAR = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '104'`).get()?.id || accBank;
+            const accNotes = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '106'`).get();
+            const accWallet = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '205'`).get();
             const accRev = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '401'`).get().id;
             const accDisc = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '403'`).get().id;
             const accCOGS = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '501'`).get().id;
-
-            // Debit Payments — route each method to its correct GL account
-            const accWallet = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '205'`).get();
-            const accNotes = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '106'`).get();
             const accPointsDisc = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '603'`).get();
 
             const paymentAccountMap = {
@@ -445,18 +522,23 @@ const posService = {
                 'CHEQUE': accNotes ? accNotes.id : accBank
             };
 
-            for (const p of payments) {
-                const targetAcc = paymentAccountMap[p.method] || accBank;
-                db.prepare(`
-                    INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit, description)
-                    VALUES (?, ?, ?, 0, ?)
-                `).run(jId, targetAcc, p.amount, `دریافت ${p.method} بابت فاکتور ${orderNumber}`);
+            for (const p of finalPayments) {
+                if (p.amount > 0) {
+                    const targetAcc = paymentAccountMap[p.method] || accBank;
+                    db.prepare(`
+                        INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit, description)
+                        VALUES (?, ?, ?, 0, ?)
+                    `).run(jId, targetAcc, p.amount, `دریافت ${p.method} بابت فاکتور ${orderNumber}`);
+                }
             }
-            if (payments.length === 0) {
+
+            // Debit Accounts Receivable (104) for any remaining unpaid balance
+            const remainingUnpaid = totalAmount - totalPaid;
+            if (remainingUnpaid > 0) {
                 db.prepare(`
                     INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit, description)
                     VALUES (?, ?, ?, 0, ?)
-                `).run(jId, accBank, totalAmount, `دریافت کارتخوان بابت فاکتور ${orderNumber}`);
+                `).run(jId, accAR, remainingUnpaid, `بدهی مشتری / نسیه فاکتور ${orderNumber}`);
             }
 
             // Debit Discount (if any)

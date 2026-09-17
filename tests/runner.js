@@ -1,7 +1,5 @@
-/**
- * Master Test Runner for ARAYESHI ERP
- * Executes Tiers 1–4 test suites using Node.js native test runner
- */
+// Preload isolated test DB proxy before any test files or services load
+require('./helpers/testDb');
 
 const { run } = require('node:test');
 const { spec } = require('node:test/reporters');
@@ -31,10 +29,19 @@ async function runAllTests() {
     console.log('===========================================================\n');
 
     const testsDir = path.join(__dirname);
-    const testFiles = findTestFiles(testsDir);
+    let testFiles = findTestFiles(testsDir);
+
+    // Filter by CLI argument if provided (e.g. node tests/runner.js tier1)
+    const filterArg = process.argv[2];
+    if (filterArg) {
+        testFiles = testFiles.filter(f => f.toLowerCase().includes(filterArg.toLowerCase()));
+    }
+
+    // Sort files logically: tier1 -> tier2 -> tier3 -> tier4
+    testFiles.sort((a, b) => a.localeCompare(b));
 
     if (testFiles.length === 0) {
-        console.error('❌ No test files found in tests/');
+        console.error(`❌ No test files matching filter '${filterArg || ''}' found in tests/`);
         process.exit(1);
     }
 

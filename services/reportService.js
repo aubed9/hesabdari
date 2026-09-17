@@ -343,7 +343,7 @@ const reportService = {
         };
     },
 
-    // 6. Four-Column Trial Balance (تراز آزمایشی ۴ ستونی استاندارد حسابداری دوبل)
+    // 6. Four-Column Trial Balance (تراز آزمایشی ۴ ستونی استاندارد حسابداری دوبل با فیلتر اسناد قطعی)
     getFourColumnTrialBalance() {
         const accounts = db.prepare(`
             SELECT 
@@ -352,13 +352,19 @@ const reportService = {
                 coa.name,
                 coa.name_fa,
                 coa.type,
-                ROUND(COALESCE(SUM(jl.debit), 0), 2) AS period_debit,
-                ROUND(COALESCE(SUM(jl.credit), 0), 2) AS period_credit
+                ROUND(COALESCE(SUM(pl.debit), 0), 2) AS period_debit,
+                ROUND(COALESCE(SUM(pl.credit), 0), 2) AS period_credit
             FROM chart_of_accounts coa
-            LEFT JOIN journal_lines jl ON coa.id = jl.account_id
+            LEFT JOIN (
+                SELECT jl.account_id, jl.debit, jl.credit
+                FROM journal_lines jl
+                JOIN journal_entries je ON jl.journal_entry_id = je.id
+                WHERE je.is_posted = 1
+            ) pl ON coa.id = pl.account_id
             GROUP BY coa.id
             ORDER BY coa.code ASC
         `).all();
+
 
         let totalPeriodDebit = 0;
         let totalPeriodCredit = 0;

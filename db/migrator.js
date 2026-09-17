@@ -24,6 +24,16 @@ function calculateChecksum(content) {
 }
 
 /**
+ * Calculates normalized LF SHA-256 checksum for cross-platform resilience.
+ * @param {string|Buffer} content
+ * @returns {string}
+ */
+function calculateNormalizedChecksum(content) {
+    const text = Buffer.isBuffer(content) ? content.toString('utf8') : String(content);
+    return crypto.createHash('sha256').update(text.replace(/\r\n/g, '\n')).digest('hex');
+}
+
+/**
  * Ensures schema_migrations tracking table exists.
  * @param {Database.Database} db
  */
@@ -127,6 +137,14 @@ async function runMigrations(options = {}) {
             const checksum = calculateChecksum(content);
 
             if (appliedMap.has(file)) {
+                const appliedInfo = appliedMap.get(file);
+                if (appliedInfo.checksum) {
+                    const rawChecksum = calculateChecksum(content);
+                    const normChecksum = calculateNormalizedChecksum(content);
+                    if (appliedInfo.checksum !== rawChecksum && appliedInfo.checksum !== normChecksum) {
+                        throw new Error(`Checksum mismatch detected for previously applied migration '${file}'! Database recorded: ${appliedInfo.checksum}, file hash: ${rawChecksum} (normalized: ${normChecksum}). Migration tampering is forbidden.`);
+                    }
+                }
                 alreadyApplied.push(file);
                 continue;
             }
@@ -274,6 +292,11 @@ async function runMigrations(options = {}) {
             throw new Error(`Post-migration database integrity check failed: ${JSON.stringify(integrity)}`);
         }
 
+        const foreignKeyViolations = db.pragma('foreign_key_check');
+        if (foreignKeyViolations && foreignKeyViolations.length > 0) {
+            throw new Error(`Post-migration foreign key check failed: ${JSON.stringify(foreignKeyViolations)}`);
+        }
+
         if (verbose) {
             console.log(`✨ [Migrator] All migrations up to date.`);
             console.log(`   Newly applied: ${appliedNow.length}`);
@@ -320,15 +343,237 @@ function getMigrationStatus(options = {}) {
         return files.map(file => {
             const isApplied = appliedMap.has(file);
             const info = appliedMap.get(file);
+            const filePath = path.join(migrationsDir, file);
+            let currentChecksum = null;
+            let currentNormChecksum = null;
+            let checksumValid = true;
+            if (fs.existsSync(filePath)) {
+                const content = fs.readFileSync(filePath);
+                currentChecksum = calculateChecksum(content);
+                currentNormChecksum = calculateNormalizedChecksum(content);
+                if (isApplied && info.checksum) {
+                    checksumValid = (info.checksum === currentChecksum || info.checksum === currentNormChecksum);
+                }
+            }
             return {
                 name: file,
                 applied: isApplied,
                 applied_at: isApplied ? info.applied_at : null,
-                checksum: isApplied ? info.checksum : null
+                checksum: isApplied ? info.checksum : null,
+                current_checksum: currentChecksum,
+                checksum_valid: checksumValid
             };
         });
     } finally {
         if (shouldClose) {
+            db.close();
+        }
+    }
+}
+
+/**
+ * Synchronous version of runMigrations for use during module initialization.
+ * @param {Object} options
+ * @returns {{applied: string[], skipped: string[], total: number}}
+ */
+function runMigrationsSync(options = {}) {
+    const verbose = options.verbose !== false;
+    const migrationsDir = path.resolve(options.migrationsDir || DEFAULT_MIGRATIONS_DIR);
+
+    let db;
+    let shouldCloseDb = false;
+
+    if (options.db && typeof options.db.prepare === 'function') {
+        db = options.db;
+    } else {
+        const dbPath = path.resolve(typeof options.db === 'string' ? options.db : DEFAULT_DB_PATH);
+        db = new Database(dbPath);
+        db.pragma('journal_mode = WAL');
+        db.pragma('foreign_keys = ON');
+        shouldCloseDb = true;
+    }
+
+    try {
+        ensureMigrationsTable(db);
+        const appliedMap = getAppliedMigrations(db);
+        const migrationFiles = getMigrationFiles(migrationsDir);
+
+        if (verbose) {
+            console.log(`🚀 [Migrator] Checking migrations in: ${migrationsDir}`);
+            console.log(`   Found ${migrationFiles.length} migration file(s). Applied: ${appliedMap.size}.`);
+        }
+
+        const appliedNow = [];
+        const alreadyApplied = [];
+
+        for (const file of migrationFiles) {
+            const filePath = path.join(migrationsDir, file);
+            const content = fs.readFileSync(filePath);
+            const checksum = calculateChecksum(content);
+
+            if (appliedMap.has(file)) {
+                const appliedInfo = appliedMap.get(file);
+                if (appliedInfo.checksum) {
+                    const rawChecksum = calculateChecksum(content);
+                    const normChecksum = calculateNormalizedChecksum(content);
+                    if (appliedInfo.checksum !== rawChecksum && appliedInfo.checksum !== normChecksum) {
+                        throw new Error(`Checksum mismatch detected for previously applied migration '${file}'! Database recorded: ${appliedInfo.checksum}, file hash: ${rawChecksum} (normalized: ${normChecksum}). Migration tampering is forbidden.`);
+                    }
+                }
+                alreadyApplied.push(file);
+                continue;
+            }
+
+            // Special baseline handling: detect existing live database without data wipe
+            const isBaseline = file.startsWith('001_baseline_') || file === '001_baseline_schema.sql';
+            const userTables = getExistingUserTables(db);
+
+            if (isBaseline && userTables.length > 0) {
+                if (verbose) {
+                    console.log(`🔍 [Migrator] Detected existing live database (${userTables.length} tables found).`);
+                    console.log(`🛡️  [Migrator] Harmonizing baseline tables and registering '${file}' non-destructively...`);
+                }
+
+                db.exec('BEGIN IMMEDIATE;');
+                try {
+                    db.exec(`
+                        CREATE TABLE IF NOT EXISTS system_settings (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            key TEXT UNIQUE NOT NULL,
+                            value TEXT NOT NULL,
+                            description TEXT,
+                            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                        );
+                        INSERT OR IGNORE INTO system_settings (key, value, description) VALUES
+                        ('currency', 'TOMAN', 'واحد پول پایه سیستم (تومان)'),
+                        ('default_warehouse_id', '1', 'شناسه انبار پیش‌فرض سیستم'),
+                        ('default_bank_account_id', '1', 'شناسه حساب بانکی پیش‌فرض سیستم'),
+                        ('default_cash_account_id', '101', 'شناسه حساب کل موجودی صندوق در کدینگ'),
+                        ('tax_rate', '0.09', 'نرخ استاندارد مالیات بر ارزش افزوده');
+                    `);
+
+                    db.exec(`
+                        CREATE TABLE IF NOT EXISTS campaign_recipients (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+                            customer_id INTEGER REFERENCES customers(id),
+                            name TEXT,
+                            mobile TEXT NOT NULL,
+                            status TEXT CHECK(status IN ('QUEUED', 'SENT', 'FAILED', 'CLICKED', 'CONVERTED')) DEFAULT 'SENT',
+                            sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                        );
+                    `);
+
+                    const campCols = db.prepare(`PRAGMA table_info(campaigns)`).all().map(c => c.name);
+                    if (!campCols.includes('message_template')) {
+                        db.exec(`ALTER TABLE campaigns ADD COLUMN message_template TEXT;`);
+                    }
+                    if (!campCols.includes('coupon_code')) {
+                        db.exec(`ALTER TABLE campaigns ADD COLUMN coupon_code TEXT;`);
+                    }
+                    if (!campCols.includes('recipients_count')) {
+                        db.exec(`ALTER TABLE campaigns ADD COLUMN recipients_count INTEGER DEFAULT 0;`);
+                    }
+
+                    const auditCols = db.prepare(`PRAGMA table_info(audit_logs)`).all().map(c => c.name);
+                    if (!auditCols.includes('actor_id')) {
+                        db.exec(`ALTER TABLE audit_logs ADD COLUMN actor_id INTEGER REFERENCES users(id);`);
+                    }
+                    if (!auditCols.includes('before_state')) {
+                        db.exec(`ALTER TABLE audit_logs ADD COLUMN before_state TEXT;`);
+                    }
+                    if (!auditCols.includes('after_state')) {
+                        db.exec(`ALTER TABLE audit_logs ADD COLUMN after_state TEXT;`);
+                    }
+                    if (!auditCols.includes('ip_address')) {
+                        db.exec(`ALTER TABLE audit_logs ADD COLUMN ip_address TEXT;`);
+                    }
+
+                    db.exec(`
+                        CREATE INDEX IF NOT EXISTS idx_campaign_recipients_campaign ON campaign_recipients(campaign_id);
+                        CREATE INDEX IF NOT EXISTS idx_campaign_recipients_customer ON campaign_recipients(customer_id);
+                        CREATE INDEX IF NOT EXISTS idx_audit_logs_employee ON audit_logs(employee_id);
+                        CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity, entity_id);
+                        CREATE INDEX IF NOT EXISTS idx_system_settings_key ON system_settings(key);
+                    `);
+
+                    db.prepare(`
+                        INSERT INTO schema_migrations (name, checksum)
+                        VALUES (?, ?)
+                    `).run(file, checksum);
+
+                    db.exec('COMMIT;');
+                    appliedNow.push(file);
+                    if (verbose) {
+                        console.log(`✅ [Migrator] Baseline migration '${file}' recorded successfully without data loss.`);
+                    }
+                } catch (baselineErr) {
+                    db.exec('ROLLBACK;');
+                    throw baselineErr;
+                }
+                continue;
+            }
+
+            if (verbose) {
+                console.log(`⚡ [Migrator] Applying migration: ${file}...`);
+            }
+
+            db.exec('BEGIN IMMEDIATE;');
+            try {
+                if (file.endsWith('.sql')) {
+                    const sqlContent = fs.readFileSync(filePath, 'utf8');
+                    db.exec(sqlContent);
+                } else if (file.endsWith('.js')) {
+                    const migrationModule = require(filePath);
+                    if (typeof migrationModule.up === 'function') {
+                        migrationModule.up(db);
+                    } else {
+                        throw new Error(`Migration file ${file} does not export an 'up' function.`);
+                    }
+                }
+
+                db.prepare(`
+                    INSERT INTO schema_migrations (name, checksum)
+                    VALUES (?, ?)
+                `).run(file, checksum);
+
+                db.exec('COMMIT;');
+                appliedNow.push(file);
+                if (verbose) {
+                    console.log(`✅ [Migrator] Successfully applied: ${file}`);
+                }
+            } catch (migErr) {
+                db.exec('ROLLBACK;');
+                console.error(`❌ [Migrator] Migration failed on ${file}:`, migErr.message);
+                throw migErr;
+            }
+        }
+
+        const integrity = db.pragma('integrity_check');
+        if (!integrity || integrity.length !== 1 || integrity[0].integrity_check !== 'ok') {
+            throw new Error(`Post-migration database integrity check failed: ${JSON.stringify(integrity)}`);
+        }
+
+        const foreignKeyViolations = db.pragma('foreign_key_check');
+        if (foreignKeyViolations && foreignKeyViolations.length > 0) {
+            throw new Error(`Post-migration foreign key check failed: ${JSON.stringify(foreignKeyViolations)}`);
+        }
+
+        if (verbose) {
+            console.log(`✨ [Migrator] All migrations up to date.`);
+            console.log(`   Newly applied: ${appliedNow.length}`);
+            console.log(`   Previously applied: ${alreadyApplied.length}`);
+            console.log(`   Database integrity: PASSED (ok)`);
+            console.log(`   Foreign key check:  PASSED (0 violations)`);
+        }
+
+        return {
+            applied: appliedNow,
+            skipped: alreadyApplied,
+            total: migrationFiles.length
+        };
+    } finally {
+        if (shouldCloseDb) {
             db.close();
         }
     }
@@ -349,20 +594,24 @@ if (require.main === module) {
             process.exit(1);
         }
     } else {
-        runMigrations()
-            .then(() => process.exit(0))
-            .catch(err => {
-                console.error('❌ Migration runner failed:', err);
-                process.exit(1);
-            });
+        try {
+            runMigrationsSync();
+            process.exit(0);
+        } catch (err) {
+            console.error('❌ Migration runner failed:', err);
+            process.exit(1);
+        }
     }
 }
 
 module.exports = {
     runMigrations,
+    runMigrationsSync,
     getMigrationStatus,
     calculateChecksum,
+    calculateNormalizedChecksum,
     ensureMigrationsTable,
     DEFAULT_MIGRATIONS_DIR,
     DEFAULT_DB_PATH
 };
+

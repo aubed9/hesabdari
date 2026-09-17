@@ -265,22 +265,34 @@ const inventoryService = {
     // Finalize stock count and adjust inventory & accounting
     finalizeStockCount(countId, approvedBy = 1) {
         const finalizeTx = db.transaction(() => {
+            const count = db.prepare(`SELECT * FROM stock_counts WHERE id = ?`).get(countId);
+            if (!count) {
+                throw new Error(`دوره انبارگردانی با شناسه ${countId} یافت نشد.`);
+            }
+            if (count.status === 'COMPLETED') {
+                throw new Error(`این دوره انبارگردانی قبلاً نهایی شده است.`);
+            }
+
             const items = db.prepare(`SELECT * FROM stock_count_items WHERE stock_count_id = ?`).all(countId);
             let totalCostVariance = 0;
+            const targetWarehouseId = count.warehouse_id || 1;
 
             for (const it of items) {
+                if (it.counted_quantity < 0) {
+                    throw new Error(`تعداد شمارش‌شده نمی‌تواند منفی باشد (ردیف ${it.id}).`);
+                }
                 const diff = it.counted_quantity - it.system_quantity;
                 if (diff !== 0) {
                     // Update batch quantity to match physical count
                     db.prepare(`UPDATE inventory_batches SET quantity = ? WHERE id = ?`).run(it.counted_quantity, it.batch_id);
 
-                    // Record transaction
+                    // Record transaction with accurate warehouse_id
                     db.prepare(`
                         INSERT INTO stock_transactions (
                             product_variant_id, batch_id, warehouse_id, transaction_type,
                             quantity, unit_cost, reference_type, reference_id, employee_id, note
-                        ) VALUES (?, ?, 1, 'STOCK_COUNT', ?, ?, 'STOCK_COUNT_ADJUST', ?, ?, 'تعدیل ناشی از انبارگردانی')
-                    `).run(it.product_variant_id, it.batch_id, diff, it.unit_cost, countId, approvedBy);
+                        ) VALUES (?, ?, ?, 'STOCK_COUNT', ?, ?, 'STOCK_COUNT_ADJUST', ?, ?, 'تعدیل ناشی از انبارگردانی')
+                    `).run(it.product_variant_id, it.batch_id, targetWarehouseId, diff, it.unit_cost, countId, approvedBy);
 
                     totalCostVariance += (diff * it.unit_cost);
                 }
@@ -298,10 +310,11 @@ const inventoryService = {
             if (totalCostVariance !== 0) {
                 const accInv = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '103'`).get().id;
                 const accVar = db.prepare(`SELECT id FROM chart_of_accounts WHERE code = '608'`).get().id;
+                const entryNumber = `JE-STK-${countId}-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
                 const jRes = db.prepare(`
                     INSERT INTO journal_entries (entry_number, date, description, reference_type, reference_id, is_posted, created_by)
                     VALUES (?, DATE('now'), ?, 'STOCK_COUNT', ?, 1, ?)
-                `).run(`JE-STK-${countId}`, `سند تعدیل انبارگردانی شماره ${countId}`, countId, approvedBy);
+                `).run(entryNumber, `سند تعدیل انبارگردانی شماره ${countId}`, countId, approvedBy);
                 const jId = jRes.lastInsertRowid;
 
                 if (totalCostVariance < 0) {

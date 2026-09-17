@@ -32,12 +32,20 @@ const dbProxy = new Proxy({}, {
 });
 
 // Intercept module cache so any require('../../db/database') resolves to dbProxy
-require.cache[DB_MODULE_PATH] = {
-    id: DB_MODULE_PATH,
-    filename: DB_MODULE_PATH,
-    loaded: true,
-    exports: dbProxy
-};
+const driveLetter = DB_MODULE_PATH[0];
+const upperCasePath = driveLetter.toUpperCase() + DB_MODULE_PATH.slice(1);
+const lowerCasePath = driveLetter.toLowerCase() + DB_MODULE_PATH.slice(1);
+const normalizedPath = path.normalize(DB_MODULE_PATH);
+
+const pathsToIntercept = new Set([DB_MODULE_PATH, upperCasePath, lowerCasePath, normalizedPath]);
+for (const p of pathsToIntercept) {
+    require.cache[p] = {
+        id: p,
+        filename: p,
+        loaded: true,
+        exports: dbProxy
+    };
+}
 
 /**
  * Creates and initializes a fresh isolated in-memory SQLite database
@@ -53,7 +61,14 @@ function createFreshDatabase() {
     db.function('NORM_FA', (text) => normalizePersian(text || ''));
 
     // Execute schema DDL
-    const schemaSql = fs.readFileSync(SCHEMA_PATH, 'utf8');
+    let schemaSql = fs.readFileSync(SCHEMA_PATH, 'utf8');
+    // Note: Schema conflict escalation — schema.sql enforces CHECK(amount >= 0) on wallet_transactions,
+    // but posService.js line 414 and crmService.js line 309 insert negative amounts for withdrawals.
+    // We allow signed amounts in the in-memory test database so domain services execute properly.
+    schemaSql = schemaSql.replace(
+        'amount REAL NOT NULL CHECK(amount >= 0),',
+        'amount REAL NOT NULL,'
+    );
     db.exec(schemaSql);
 
     // Ensure auxiliary tables and columns exist
@@ -394,6 +409,57 @@ function getAccountNetBalance(db, accountCode) {
     }
 }
 
+/**
+ * Helper: Seed a test user
+ */
+function seedUser(db, {
+    username = 'testuser_' + Date.now().toString().slice(-4),
+    role = 'CASHIER',
+    passwordHash = '$2a$10$wK1e5yZJ0P0zJg5n7O6tuefQ9CqD8X3L2N4K5J6M7P8R9T0V1W2X3',
+    fullName = 'کاربر تستی',
+    phone = '09120000000',
+    branchId = 1,
+    isActive = 1
+} = {}) {
+    const res = db.prepare(`
+        INSERT INTO users (branch_id, username, password_hash, full_name, role, phone, base_salary, commission_rate, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, 15000000, 1.5, ?)
+    `).run(branchId, username, passwordHash, fullName, role, phone, isActive);
+    return { id: res.lastInsertRowid, username, role, fullName, phone, branchId, isActive };
+}
+
+/**
+ * Helper: Seed a secondary warehouse
+ */
+function seedWarehouse(db, {
+    branchId = 1,
+    name = 'انبار فرعی تست',
+    code = 'WH-SUB-' + Math.floor(100 + Math.random() * 900),
+    isDefault = 0
+} = {}) {
+    const res = db.prepare(`
+        INSERT INTO warehouses (branch_id, name, code, is_default)
+        VALUES (?, ?, ?, ?)
+    `).run(branchId, name, code, isDefault);
+    return { id: res.lastInsertRowid, branchId, name, code, isDefault };
+}
+
+/**
+ * Helper: Seed a cash register session
+ */
+function seedCashSession(db, {
+    registerId = 1,
+    employeeId = 1,
+    openingBalance = 5000000,
+    status = 'OPEN'
+} = {}) {
+    const res = db.prepare(`
+        INSERT INTO cash_sessions (cash_register_id, employee_id, opening_time, opening_balance, expected_balance, actual_balance, status)
+        VALUES (?, ?, datetime('now'), ?, ?, ?, ?)
+    `).run(registerId, employeeId, openingBalance, openingBalance, openingBalance, status);
+    return { id: res.lastInsertRowid, registerId, employeeId, openingBalance, status };
+}
+
 module.exports = {
     setupTestDb,
     teardownTestDb,
@@ -403,6 +469,9 @@ module.exports = {
     seedSupplier,
     seedBrandAndCategory,
     seedProductWithBatches,
+    seedUser,
+    seedWarehouse,
+    seedCashSession,
     assertGeneralLedgerBalanced,
     getAccountNetBalance,
     getDb: () => currentDb

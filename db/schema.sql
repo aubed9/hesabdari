@@ -117,11 +117,12 @@ CREATE TABLE IF NOT EXISTS inventory_batches (
     batch_number TEXT NOT NULL,
     manufacture_date DATE,
     expiry_date DATE NOT NULL,
-    quantity INTEGER NOT NULL DEFAULT 0,
-    reserved_quantity INTEGER NOT NULL DEFAULT 0,
+    quantity INTEGER NOT NULL DEFAULT 0 CHECK(quantity >= 0),
+    reserved_quantity INTEGER NOT NULL DEFAULT 0 CHECK(reserved_quantity >= 0),
     purchase_price REAL NOT NULL,
     supplier_id INTEGER,
-    received_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    received_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    CHECK (reserved_quantity <= quantity)
 );
 
 CREATE TABLE IF NOT EXISTS stock_transactions (
@@ -237,7 +238,7 @@ CREATE TABLE IF NOT EXISTS customers (
     hair_preferences TEXT,
     loyalty_tier TEXT CHECK(loyalty_tier IN ('BRONZE', 'SILVER', 'GOLD', 'VIP')) DEFAULT 'BRONZE',
     loyalty_points INTEGER DEFAULT 0,
-    wallet_balance REAL DEFAULT 0,
+    wallet_balance REAL DEFAULT 0 CHECK(wallet_balance >= 0),
     referral_code TEXT UNIQUE,
     referred_by INTEGER REFERENCES customers(id),
     rfm_segment TEXT DEFAULT 'NEW',
@@ -279,7 +280,7 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     customer_id INTEGER NOT NULL REFERENCES customers(id),
     type TEXT CHECK(type IN ('DEPOSIT', 'WITHDRAW', 'REFUND', 'GIFT')) NOT NULL,
-    amount REAL NOT NULL,
+    amount REAL NOT NULL CHECK(amount >= 0),
     order_id INTEGER,
     description TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -334,20 +335,21 @@ CREATE TABLE IF NOT EXISTS order_items (
     order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
     product_variant_id INTEGER NOT NULL REFERENCES product_variants(id),
     batch_id INTEGER REFERENCES inventory_batches(id),
-    quantity INTEGER NOT NULL,
+    quantity INTEGER NOT NULL CHECK(quantity >= 0),
     unit_price REAL NOT NULL,
     unit_cost REAL NOT NULL,
     discount_amount REAL DEFAULT 0,
     total_price REAL NOT NULL,
     is_returned BOOLEAN DEFAULT 0,
-    returned_quantity INTEGER NOT NULL DEFAULT 0
+    returned_quantity INTEGER NOT NULL DEFAULT 0 CHECK(returned_quantity >= 0),
+    CHECK (returned_quantity <= quantity)
 );
 
 CREATE TABLE IF NOT EXISTS payments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
     payment_method TEXT CHECK(payment_method IN ('CASH', 'CARD', 'WALLET', 'POINTS', 'ONLINE', 'CHEQUE')) NOT NULL,
-    amount REAL NOT NULL,
+    amount REAL NOT NULL CHECK(amount >= 0),
     card_last_digits TEXT,
     reference_code TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -373,10 +375,10 @@ CREATE TABLE IF NOT EXISTS return_items (
     order_item_id INTEGER REFERENCES order_items(id),
     product_variant_id INTEGER NOT NULL REFERENCES product_variants(id),
     batch_id INTEGER REFERENCES inventory_batches(id),
-    quantity INTEGER NOT NULL,
+    quantity INTEGER NOT NULL CHECK(quantity >= 0),
     is_opened BOOLEAN DEFAULT 0,
     is_restockable BOOLEAN DEFAULT 1,
-    refund_amount REAL NOT NULL
+    refund_amount REAL NOT NULL CHECK(refund_amount >= 0)
 );
 
 CREATE TABLE IF NOT EXISTS exchanges (
@@ -415,8 +417,8 @@ CREATE TABLE IF NOT EXISTS journal_lines (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     journal_entry_id INTEGER NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE,
     account_id INTEGER NOT NULL REFERENCES chart_of_accounts(id),
-    debit REAL DEFAULT 0,
-    credit REAL DEFAULT 0,
+    debit REAL DEFAULT 0 CHECK(debit >= 0),
+    credit REAL DEFAULT 0 CHECK(credit >= 0),
     description TEXT
 );
 
@@ -437,7 +439,7 @@ CREATE TABLE IF NOT EXISTS expenses (
         'ELECTRICITY', 'INTERNET', 'MAINTENANCE', 'TAX', 'DELIVERY',
         'MARKETPLACE_COMMISSION', 'TESTER_EXPENSE', 'OTHER'
     )) NOT NULL,
-    amount REAL NOT NULL,
+    amount REAL NOT NULL CHECK(amount >= 0),
     bank_account_id INTEGER REFERENCES bank_accounts(id),
     payment_date DATE DEFAULT (DATE('now')),
     description TEXT,
@@ -585,7 +587,7 @@ CREATE TABLE IF NOT EXISTS fixed_costs (
     title TEXT NOT NULL,
     category TEXT NOT NULL,
     account_id INTEGER NOT NULL REFERENCES chart_of_accounts(id),
-    amount REAL NOT NULL,
+    amount REAL NOT NULL CHECK(amount >= 0),
     frequency TEXT CHECK(frequency IN ('MONTHLY', 'QUARTERLY', 'YEARLY', 'WEEKLY')) DEFAULT 'MONTHLY',
     due_day INTEGER DEFAULT 1,
     status TEXT CHECK(status IN ('ACTIVE', 'PAUSED')) DEFAULT 'ACTIVE',

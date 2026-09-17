@@ -11,6 +11,17 @@ Thumbs.db
 *.sqlite3
 *.sqlite3-*
 *.db
+*.tmp
+*.tmp-*
 
 # Backups directory
 backups/
+
+# Explicitly ensure database schema, seed, and migrations remain tracked
+!db/schema.sql
+!db/seed.js
+!db/migrations/
+!db/migrations/*
+
+# Agent cache & internal directories
+.agents/
