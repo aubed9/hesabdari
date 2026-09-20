@@ -94,31 +94,9 @@ const posService = {
         `).get(barcode);
     },
 
-    // Cross-sell & Upsell suggestions based on cart items
+    // Recommendations disabled (Offline & No-AI mode)
     getCartRecommendations(variantIds) {
-        if (!variantIds || variantIds.length === 0) return [];
-        // If customer is buying foundation (e.g. Maybelline), suggest Beauty Blender sponge or Concealer!
-        // We look for products frequently bought together or complementary tools
-        const recommendations = db.prepare(`
-            SELECT 
-                pv.id AS variant_id,
-                p.name_fa AS product_name,
-                b.name AS brand_name,
-                pv.shade,
-                pv.selling_price,
-                c.name_fa AS category_name,
-                'پیشنهاد مکمل سبد خرید (Cross-Sell)' AS recommendation_type
-            FROM product_variants pv
-            JOIN products p ON pv.product_id = p.id
-            JOIN brands b ON p.brand_id = b.id
-            JOIN categories c ON p.category_id = c.id
-            WHERE pv.is_active = 1 
-              AND pv.id NOT IN (${variantIds.map(() => '?').join(',')})
-              AND (c.name = 'Beauty Tools' OR c.name = 'Concealer' OR c.name = 'Lipstick')
-            LIMIT 3
-        `).all(...variantIds);
-
-        return recommendations;
+        return [];
     },
 
     // Create POS Order with FEFO batch allocation & automatic accounting journal

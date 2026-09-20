@@ -128,28 +128,23 @@ const app = {
         if (btnSimulate) btnSimulate.style.display = isManager ? 'flex' : 'none';
         if (btnReports) btnReports.style.display = isManager ? 'flex' : 'none';
 
-        // Sidebar Navigation Visibility
-        const sectionsConfig = {
-            'dashboard': isManager,
-            'pos': true,
-            'products': isManager,
-            'inventory': isManager,
-            'purchasing': isManager,
-            'omnichannel': isManager,
-            'crm': true,
-            'marketing': isManager,
-            'accounting': isManager,
-            'reports': isManager,
-            'bi': isManager,
-            'audit': isManager,
-            'alerts': true,
-            'ai': isManager
-        };
+        // Sidebar Navigation Visibility based on dynamic allowedSections
+        const allSections = [
+            'dashboard', 'pos', 'products', 'inventory', 'purchasing',
+            'omnichannel', 'crm', 'marketing', 'accounting', 'reports',
+            'bi', 'audit', 'alerts', 'settings'
+        ];
 
-        for (const [sec, allowed] of Object.entries(sectionsConfig)) {
+        const allowed = Array.isArray(this.currentUser.allowedSections)
+            ? this.currentUser.allowedSections
+            : (isManager ? allSections : ['pos', 'crm', 'alerts']);
+
+        for (const sec of allSections) {
             const navEl = document.getElementById(`nav-${sec}`);
             if (navEl) {
-                navEl.style.display = allowed ? 'flex' : 'none';
+                // Settings is strictly for MANAGER
+                const isPermitted = (sec === 'settings') ? isManager : allowed.includes(sec);
+                navEl.style.display = isPermitted ? 'flex' : 'none';
             }
         }
     },
@@ -221,10 +216,23 @@ const app = {
             return;
         }
 
-        // Access control check for ADMIN
-        if (this.currentUser.role === 'ADMIN' && name !== 'pos' && name !== 'crm' && name !== 'alerts') {
-            alert('⚠️ دسترسی محدود: حساب کاربری ادمین فقط به بخش‌های «صندوق فروش POS» و «CRM و باشگاه مشتریان» دسترسی دارد.');
-            name = 'pos';
+        const isManager = (this.currentUser.role === 'MANAGER');
+        const allSections = [
+            'dashboard', 'pos', 'products', 'inventory', 'purchasing',
+            'omnichannel', 'crm', 'marketing', 'accounting', 'reports',
+            'bi', 'audit', 'alerts', 'settings'
+        ];
+        const allowed = Array.isArray(this.currentUser.allowedSections) 
+            ? this.currentUser.allowedSections 
+            : (isManager ? allSections : ['pos', 'crm', 'alerts']);
+
+        // Check if current target section is permitted
+        if (name === 'settings' && !isManager) {
+            this.showNotification('⚠️ بخش تنظیمات فقط مخصوص مدیر ارشد فروشگاه است.', 'error');
+            name = allowed[0] || 'pos';
+        } else if (!isManager && !allowed.includes(name)) {
+            this.showNotification(`⚠️ دسترسی غیرمجاز: حساب کاربری شما به بخش «${name}» دسترسی ندارد.`, 'error');
+            name = allowed[0] || 'pos';
         }
 
         this.currentSection = name;
@@ -253,6 +261,7 @@ const app = {
         else if (name === 'audit') this.renderAuditLogs();
         else if (name === 'marketing') marketing.init();
         else if (name === 'alerts') this.renderAlerts();
+        else if (name === 'settings') this.renderSettings();
         else this.renderDashboard();
 
         lucide.createIcons();
@@ -1172,6 +1181,420 @@ const app = {
                 badge.style.display = count > 0 ? 'flex' : 'none';
             }
         } catch (e) {}
+    },
+
+    // 14. Settings & User Management View (تنظیمات مدیر و سطوح دسترسی)
+    async renderSettings() {
+        const container = document.getElementById('mainContainer');
+        container.innerHTML = `<div class="py-12 text-center text-slate-400">در حال دریافت فهرست کاربران و تنظیمات دسترسی...</div>`;
+
+        try {
+            const res = await fetch('/api/admin/users');
+            const json = await res.json();
+            const users = json.data || [];
+            this.cachedUsers = users;
+
+            const moduleLabels = {
+                'dashboard': 'داشبورد',
+                'pos': 'صندوق POS',
+                'products': 'کالاها',
+                'inventory': 'انبارداری',
+                'purchasing': 'خرید',
+                'omnichannel': 'آنلاین/پیک',
+                'crm': 'باشگاه مشتریان',
+                'marketing': 'بازاریابی',
+                'accounting': 'حسابداری',
+                'reports': 'گزارشات',
+                'bi': 'هوش تجاری',
+                'audit': 'امنیت',
+                'alerts': 'هشدارها',
+                'settings': 'تنظیمات'
+            };
+
+            const activeAdminsCount = users.filter(u => u.is_active && u.role !== 'MANAGER').length;
+            const managersCount = users.filter(u => u.role === 'MANAGER').length;
+
+            container.innerHTML = `
+                <div class="space-y-6">
+                    <!-- Header -->
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                        <div>
+                            <div class="flex items-center gap-3">
+                                <div class="w-12 h-12 rounded-2xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xl shadow-inner">
+                                    <i data-lucide="settings" class="w-6 h-6"></i>
+                                </div>
+                                <div>
+                                    <h1 class="text-xl font-black text-slate-900">تنظیمات سامانه و مدیریت ادمین‌ها</h1>
+                                    <p class="text-xs text-slate-500 mt-0.5">تعریف ادمین جدید، تغییر رمز عبور و تنظیم دقیق سطوح دسترسی به ماژول‌های سیستم</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-3">
+                            <button onclick="app.openUserModal()" class="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white text-xs font-bold rounded-xl shadow-lg shadow-purple-200 flex items-center gap-2 transition cursor-pointer">
+                                <i data-lucide="user-plus" class="w-4 h-4"></i>
+                                <span>+ ایجاد کاربر / ادمین جدید</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- KPI Cards Row -->
+                    <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                                <i data-lucide="users" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <div class="text-[11px] text-slate-400 font-bold">کل کاربران سامانه</div>
+                                <div class="text-lg font-black text-slate-800">${users.length} نفر</div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                                <i data-lucide="user-check" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <div class="text-[11px] text-slate-400 font-bold">ادمین‌های فعال</div>
+                                <div class="text-lg font-black text-emerald-600">${activeAdminsCount} نفر</div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                                <i data-lucide="shield" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <div class="text-[11px] text-slate-400 font-bold">مدیران سیستم</div>
+                                <div class="text-lg font-black text-indigo-600">${managersCount} نفر</div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                                <i data-lucide="wifi-off" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <div class="text-[11px] text-slate-400 font-bold">وضعیت اینترنت</div>
+                                <div class="text-xs font-bold text-amber-600">۱۰۰٪ آفلاین محلی</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Users Table -->
+                    <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div class="p-5 border-b border-slate-100 flex items-center justify-between">
+                            <div class="font-bold text-sm text-slate-800 flex items-center gap-2">
+                                <i data-lucide="shield-check" class="w-4 h-4 text-purple-600"></i>
+                                <span>فهرست حساب‌های کاربری و سطوح دسترسی</span>
+                            </div>
+                            <span class="text-xs text-slate-400">بانک اطلاعات محلی SQLite</span>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-right text-xs">
+                                <thead class="bg-slate-50 text-slate-500 border-b border-slate-100 font-bold">
+                                    <tr>
+                                        <th class="p-4">شناسه / نام کاربری</th>
+                                        <th class="p-4">نام و نام خانوادگی</th>
+                                        <th class="p-4">نقش سازمانی</th>
+                                        <th class="p-4">شماره تماس</th>
+                                        <th class="p-4">وضعیت</th>
+                                        <th class="p-4">بخش‌های مجاز (سطح دسترسی)</th>
+                                        <th class="p-4 text-center">عملیات</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    ${users.map(u => {
+                                        const isMan = u.role === 'MANAGER';
+                                        const roleBadge = isMan 
+                                            ? '<span class="px-2.5 py-1 rounded-full text-[10px] font-black bg-purple-100 text-purple-700">مدیر کل</span>'
+                                            : '<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">ادمین / صندوق‌دار</span>';
+                                        
+                                        const statusBadge = u.is_active
+                                            ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-600">فعال</span>'
+                                            : '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-600">غیرفعال</span>';
+
+                                        const permChips = isMan 
+                                            ? '<span class="text-[11px] font-bold text-purple-700 bg-purple-50 px-2 py-1 rounded-lg">دسترسی کامل به تمام ماژول‌ها</span>'
+                                            : (Array.isArray(u.permissions) && u.permissions.length > 0 
+                                                ? u.permissions.map(p => `<span class="inline-block bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[10px] m-0.5 font-medium">${moduleLabels[p] || p}</span>`).join('')
+                                                : '<span class="text-slate-400">صندوق و CRM (پیش‌فرض)</span>');
+
+                                        return `
+                                            <tr class="hover:bg-slate-50/70 transition">
+                                                <td class="p-4 font-mono font-bold text-slate-800">
+                                                    <div class="flex items-center gap-1.5">
+                                                        <i data-lucide="user" class="w-3.5 h-3.5 text-slate-400"></i>
+                                                        <span>${u.username}</span>
+                                                    </div>
+                                                </td>
+                                                <td class="p-4 font-bold text-slate-900">${u.full_name}</td>
+                                                <td class="p-4">${roleBadge}</td>
+                                                <td class="p-4 font-mono text-slate-600">${u.phone || '-'}</td>
+                                                <td class="p-4">${statusBadge}</td>
+                                                <td class="p-4 max-w-xs">${permChips}</td>
+                                                <td class="p-4">
+                                                    <div class="flex items-center justify-center gap-2">
+                                                        <button onclick="app.openUserModal(${u.id})" class="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl font-bold flex items-center gap-1 transition cursor-pointer" title="ویرایش مشخصات و دسترسی">
+                                                            <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                                                            <span>ویرایش و رمز</span>
+                                                        </button>
+                                                        ${!isMan && u.username !== 'admin' ? `
+                                                            <button onclick="app.deleteUser(${u.id}, '${u.username}')" class="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold transition cursor-pointer" title="حذف کاربر">
+                                                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                                            </button>
+                                                        ` : ''}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+        } catch (err) {
+            container.innerHTML = `<div class="p-6 text-center text-rose-500">خطا در بارگذاری بخش تنظیمات: ${err.message}</div>`;
+        }
+    },
+
+    openUserModal(userId = null) {
+        const user = userId ? (this.cachedUsers || []).find(u => u.id === userId) : null;
+        const isEdit = !!user;
+
+        const availableModules = [
+            { key: 'pos', label: 'صندوق فروش و تسویه فاکتور (POS)', desc: 'ثبت فاکتور، تسویه کارت/نقد، جستجوی بارکد' },
+            { key: 'crm', label: 'باشگاه مشتریان و CRM', desc: 'مشاهده مشتریان، کیف پول، امتیاز وفاداری، تاریخچه خرید' },
+            { key: 'alerts', label: 'مرکز هشدارها', desc: 'مشاهده هشدارهای کسری کالا و انقضا' },
+            { key: 'products', label: 'کاتالوگ و تعریف کالاها', desc: 'افزودن و ویرایش محصولات، بارکد، شید رنگی' },
+            { key: 'inventory', label: 'انبارداری و تاریخ انقضا (FEFO)', desc: 'موجودی انبارها، انبارگردانی، ضایعات و تستر' },
+            { key: 'purchasing', label: 'خرید و زنجیره تأمین', desc: 'فاکتور خرید، تأمین‌کنندگان، بستانکاران' },
+            { key: 'omnichannel', label: 'فروش آنلاین و پیک', desc: 'سفارشات اینستاگرام و سایت، وضعیت ارسال پیک' },
+            { key: 'marketing', label: 'کمپین‌های بازاریابی و پیامک', desc: 'طراحی کمپین‌های تخفیفی و مناسبتی' },
+            { key: 'accounting', label: 'حسابداری دوبل و خزانه‌داری', desc: 'اسناد دوبل، دفتر روزنامه، چک‌ها، تراز مالی' },
+            { key: 'reports', label: 'گزارشات فروش و Z-Report', desc: 'گزارش روزانه صندوق، بستن صندوق، سود ناخالص' },
+            { key: 'bi', label: 'هوش تجاری و تحلیل سود (BI)', desc: 'نمودارهای روند فروش، مشتریان وفادار، سودآوری' },
+            { key: 'audit', label: 'لاگ ممیزی و امنیت', desc: 'ثبت کلیه لاگ‌های ورود، حذف و تغییرات دیتابیس' }
+        ];
+
+        const userPerms = user ? (user.permissions || []) : ['pos', 'crm', 'alerts'];
+        const isUserAdmin = user ? (user.role === 'ADMIN') : true;
+        const isUserManager = user ? (user.role === 'MANAGER') : false;
+
+        this.openModal(`
+            <div class="space-y-4 text-xs">
+                <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+                            <i data-lucide="${isEdit ? 'user-cog' : 'user-plus'}" class="w-4 h-4"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-black text-sm text-slate-900">${isEdit ? `ویرایش کاربر: ${user.full_name}` : 'تعریف کاربر / ادمین جدید'}</h3>
+                            <p class="text-[11px] text-slate-500">${isEdit ? 'تغییر رمز عبور، نقش و ماژول‌های مجاز کاربر' : 'مشخصات حساب کاربری و تنظیم سطح دسترسی دقیق'}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <form onsubmit="event.preventDefault(); app.saveUser(${userId});" class="space-y-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">نام و نام خانوادگی <span class="text-rose-500">*</span></label>
+                            <input type="text" id="userFullNameInput" value="${user?.full_name || ''}" placeholder="مثلاً: علی رضایی" required class="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold focus:border-purple-600 outline-none">
+                        </div>
+
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">نام کاربری (لاگین) <span class="text-rose-500">*</span></label>
+                            <input type="text" id="userUsernameInput" value="${user?.username || ''}" ${isEdit ? 'readonly disabled' : ''} placeholder="e.g. admin_pos" required class="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-mono font-bold focus:border-purple-600 outline-none ${isEdit ? 'bg-slate-100 text-slate-500' : ''}">
+                        </div>
+
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">رمز عبور ${isEdit ? '(اگر تغییر نمی‌کند خالی بگذارید)' : '<span class="text-rose-500">*</span>'}</label>
+                            <input type="password" id="userPasswordInput" placeholder="${isEdit ? 'رمز جدید را وارد کنید...' : 'حداقل ۳ رقم (مثلاً ۱۲۳۴۵۶)'}" ${isEdit ? '' : 'required'} class="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-mono focus:border-purple-600 outline-none">
+                        </div>
+
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">شماره همراه پرسنل</label>
+                            <input type="text" id="userPhoneInput" value="${user?.phone || ''}" placeholder="09120000000" class="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-mono focus:border-purple-600 outline-none">
+                        </div>
+
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">نقش سازمانی</label>
+                            <select id="userRoleSelect" onchange="app.handleRoleChange(this.value)" class="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold bg-white focus:border-purple-600 outline-none">
+                                <option value="ADMIN" ${isUserAdmin ? 'selected' : ''}>ادمین فروشگاه (دسترسی انتخابی)</option>
+                                <option value="MANAGER" ${isUserManager ? 'selected' : ''}>مدیر ارشد فروشگاه (دسترسی نامحدود به همه چیز)</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">وضعیت حساب</label>
+                            <div class="mt-2 flex items-center gap-2">
+                                <label class="inline-flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" id="userActiveCheck" ${user ? (user.is_active ? 'checked' : '') : 'checked'} class="w-4 h-4 text-purple-600 rounded">
+                                    <span class="font-bold text-slate-700">حساب کاربری فعال است و امکان ورود دارد</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Permissions Section -->
+                    <div id="permissionsContainer" class="pt-3 border-t border-slate-100 ${isUserManager ? 'opacity-50 pointer-events-none' : ''}">
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                                <i data-lucide="key" class="w-3.5 h-3.5 text-purple-600"></i>
+                                <span>سطح دسترسی و ماژول‌های مجاز برای این کاربر:</span>
+                            </label>
+                            <div class="flex items-center gap-2">
+                                <button type="button" onclick="app.setAllPermissions(true)" class="text-[10px] text-purple-600 hover:text-purple-800 font-bold cursor-pointer">انتخاب همه</button>
+                                <span class="text-slate-300">|</span>
+                                <button type="button" onclick="app.setAllPermissions(false)" class="text-[10px] text-slate-500 hover:text-slate-700 font-bold cursor-pointer">عدم انتخاب</button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                            ${availableModules.map(m => {
+                                const checked = userPerms.includes(m.key) ? 'checked' : '';
+                                return `
+                                    <label class="flex items-start gap-2.5 p-2 rounded-xl hover:bg-white transition cursor-pointer border border-transparent hover:border-slate-200">
+                                        <input type="checkbox" name="modulePerm" value="${m.key}" ${checked} class="w-4 h-4 mt-0.5 text-purple-600 rounded">
+                                        <div>
+                                            <div class="font-bold text-slate-800 text-xs">${m.label}</div>
+                                            <div class="text-[10px] text-slate-500">${m.desc}</div>
+                                        </div>
+                                    </label>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Footer Buttons -->
+                    <div class="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                        <button type="button" onclick="app.closeModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold transition cursor-pointer">انصراف</button>
+                        <button type="submit" id="saveUserSubmitBtn" class="px-5 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-xl font-bold shadow-lg shadow-purple-200 transition cursor-pointer flex items-center gap-1.5">
+                            <i data-lucide="check" class="w-4 h-4"></i>
+                            <span>${isEdit ? 'ذخیره تغییرات' : 'ایجاد کاربر جدید'}</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        `);
+    },
+
+    handleRoleChange(role) {
+        const permContainer = document.getElementById('permissionsContainer');
+        if (!permContainer) return;
+        if (role === 'MANAGER') {
+            permContainer.classList.add('opacity-50', 'pointer-events-none');
+        } else {
+            permContainer.classList.remove('opacity-50', 'pointer-events-none');
+        }
+    },
+
+    setAllPermissions(selectAll) {
+        document.querySelectorAll('input[name="modulePerm"]').forEach(cb => {
+            cb.checked = selectAll;
+        });
+    },
+
+    async saveUser(userId = null) {
+        const btn = document.getElementById('saveUserSubmitBtn');
+        if (btn) btn.disabled = true;
+
+        try {
+            const full_name = document.getElementById('userFullNameInput')?.value?.trim();
+            const username = document.getElementById('userUsernameInput')?.value?.trim();
+            const password = document.getElementById('userPasswordInput')?.value?.trim();
+            const phone = document.getElementById('userPhoneInput')?.value?.trim();
+            const role = document.getElementById('userRoleSelect')?.value || 'ADMIN';
+            const is_active = document.getElementById('userActiveCheck')?.checked ? 1 : 0;
+
+            const selectedPerms = [];
+            document.querySelectorAll('input[name="modulePerm"]:checked').forEach(cb => {
+                selectedPerms.push(cb.value);
+            });
+
+            if (!full_name) throw new Error('نام و نام خانوادگی الزامی است.');
+
+            const allSections = [
+                'dashboard', 'pos', 'products', 'inventory', 'purchasing',
+                'omnichannel', 'crm', 'marketing', 'accounting', 'reports',
+                'bi', 'audit', 'alerts', 'settings'
+            ];
+
+            if (!userId) {
+                // New User Creation
+                if (!username) throw new Error('نام کاربری الزامی است.');
+                if (!password) throw new Error('رمز عبور الزامی است.');
+
+                const res = await fetch('/api/admin/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        full_name,
+                        username,
+                        password,
+                        phone,
+                        role,
+                        permissions: role === 'MANAGER' ? allSections : selectedPerms
+                    })
+                });
+                const json = await res.json();
+                if (!json.success) throw new Error(json.error || 'خطا در ثبت کاربر جدید');
+
+                this.showNotification('کاربر جدید با موفقیت ایجاد شد.', 'success');
+            } else {
+                // Existing User Update
+                const payload = {
+                    full_name,
+                    phone,
+                    role,
+                    is_active,
+                    permissions: role === 'MANAGER' ? allSections : selectedPerms
+                };
+                if (password && password.length > 0) {
+                    payload.password = password;
+                }
+
+                const res = await fetch(`/api/admin/users/${userId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const json = await res.json();
+                if (!json.success) throw new Error(json.error || 'خطا در ویرایش کاربر');
+
+                this.showNotification('مشخصات و دسترسی‌های کاربر با موفقیت به‌روز شد.', 'success');
+            }
+
+            this.closeModal();
+            await this.renderSettings();
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    },
+
+    async deleteUser(userId, username) {
+        if (!confirm(`آیا از حذف یا غیرفعال‌سازی کاربر «${username}» اطمینان دارید؟`)) {
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/admin/users/${userId}`, {
+                method: 'DELETE'
+            });
+            const json = await res.json();
+            if (!json.success) throw new Error(json.error || 'خطا در حذف کاربر');
+
+            this.showNotification('کاربر با موفقیت حذف یا غیرفعال شد.', 'success');
+            await this.renderSettings();
+        } catch (err) {
+            alert(err.message);
+        }
     },
 
     // Global Modal Helpers

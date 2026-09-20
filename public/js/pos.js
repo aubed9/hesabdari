@@ -53,13 +53,6 @@ const pos = {
                         <div class="col-span-full py-12 text-center text-slate-400">در حال بارگذاری محصولات...</div>
                     </div>
 
-                    <!-- Cross-Sell Recommendation Strip (اگر محصولی در سبد بود) -->
-                    <div id="crossSellStrip" class="mt-3 pt-3 border-t border-slate-100 hidden">
-                        <div class="text-xs font-bold text-purple-800 mb-2 flex items-center gap-1">
-                            <i data-lucide="sparkles" class="w-3.5 h-3.5 text-purple-600"></i>
-                            <span>پیشنهاد مکمل هوشمند سبد (Cross-Sell):</span>
-                        </div>
-                        <div id="crossSellItems" class="flex gap-3 overflow-x-auto pb-1"></div>
                     </div>
                 </div>
 
@@ -299,7 +292,6 @@ const pos = {
         }
 
         this.renderCart();
-        this.fetchCrossSellRecommendations();
     },
 
     updateCartQuantity(variantId, delta) {
@@ -315,7 +307,6 @@ const pos = {
         }
 
         this.renderCart();
-        this.fetchCrossSellRecommendations();
     },
 
     renderCart() {
@@ -376,50 +367,6 @@ const pos = {
         document.getElementById('posSubtotal').innerText = `${subtotal.toLocaleString('fa-IR')} تومان`;
         document.getElementById('posDiscount').innerText = `${this.discountAmount.toLocaleString('fa-IR')} تومان`;
         document.getElementById('posTotal').innerText = `${total.toLocaleString('fa-IR')} تومان`;
-    },
-
-    async fetchCrossSellRecommendations() {
-        const strip = document.getElementById('crossSellStrip');
-        const container = document.getElementById('crossSellItems');
-        if (!strip || !container) return;
-
-        if (this.cart.length === 0) {
-            strip.classList.add('hidden');
-            return;
-        }
-
-        try {
-            const variantIds = this.cart.map(i => i.variantId);
-            const res = await fetch('/api/pos/recommendations', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ variantIds })
-            });
-            const json = await res.json();
-            if (json.success && json.data.length > 0) {
-                strip.classList.remove('hidden');
-                container.innerHTML = json.data.map(r => `
-                    <div onclick="pos.addToCart(${JSON.stringify({
-                        variant_id: r.variant_id,
-                        product_name_fa: r.product_name,
-                        brand_name: r.brand_name,
-                        shade: r.shade,
-                        selling_price: r.selling_price,
-                        total_stock: 99
-                    }).replace(/"/g, '&quot;')})" class="flex-shrink-0 bg-purple-50 border border-purple-200 hover:border-purple-400 p-2 rounded-xl cursor-pointer flex items-center gap-2">
-                        <div class="text-right">
-                            <div class="text-[11px] font-bold text-slate-800">${r.product_name}</div>
-                            <div class="text-[10px] text-purple-700">${Number(r.selling_price).toLocaleString('fa-IR')} تومان</div>
-                        </div>
-                        <span class="w-5 h-5 rounded-full bg-purple-600 text-white flex items-center justify-center text-xs">+</span>
-                    </div>
-                `).join('');
-            } else {
-                strip.classList.add('hidden');
-            }
-        } catch (e) {
-            strip.classList.add('hidden');
-        }
     },
 
     // Customer Selection Modal

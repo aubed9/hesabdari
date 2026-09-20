@@ -1,5 +1,5 @@
-/* Custom Styles for Arayeshi Retail ERP */
-@import url('https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css');
+/* Custom Styles for Arayeshi Retail ERP (100% Offline Local Assets) */
+@import url('../vendor/vazirmatn.css');
 
 :root {
     --primary: #9333ea;

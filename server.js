@@ -31,6 +31,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ==========================================
 // 0. AUTHENTICATION & ACCESS CONTROL APIS
 // ==========================================
+const ALL_MODULE_SECTIONS = [
+    'dashboard', 'pos', 'products', 'inventory', 'purchasing', 
+    'omnichannel', 'crm', 'marketing', 'accounting', 'reports', 
+    'bi', 'audit', 'alerts', 'settings'
+];
+
 app.post('/api/auth/login', (req, res) => {
     try {
         const { username, password } = req.body;
@@ -38,7 +44,7 @@ app.post('/api/auth/login', (req, res) => {
             return res.status(400).json({ success: false, error: 'نام کاربری الزامی است.' });
         }
         const user = db.prepare(`
-            SELECT id, username, full_name, role, password_hash, is_active 
+            SELECT id, username, full_name, role, password_hash, permissions, is_active 
             FROM users 
             WHERE LOWER(username) = LOWER(?)
         `).get(String(username).trim());
@@ -58,13 +64,25 @@ app.post('/api/auth/login', (req, res) => {
             return res.status(401).json({ success: false, error: 'نام کاربری یا رمز عبور اشتباه است.' });
         }
 
-        // Define permissions based on exact user specification:
-        // MANAGER: Full access to everything
-        // ADMIN: Restricted to POS checkout and CRM / Loyalty club
         const isManager = (user.role === 'MANAGER' || user.username.toLowerCase() === 'manager');
-        const allowedSections = isManager
-            ? ['dashboard', 'pos', 'products', 'inventory', 'purchasing', 'omnichannel', 'crm', 'marketing', 'accounting', 'reports', 'bi', 'audit', 'alerts', 'ai']
-            : ['pos', 'crm', 'alerts'];
+        
+        // Resolve allowed sections:
+        let allowedSections = [];
+        if (isManager) {
+            allowedSections = ALL_MODULE_SECTIONS;
+        } else if (user.permissions) {
+            try {
+                const parsed = JSON.parse(user.permissions);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    allowedSections = parsed.filter(s => s !== 'ai'); // Strictly exclude any AI references
+                }
+            } catch (e) {}
+        }
+        
+        // Fallback for non-managers if no custom permissions set
+        if (allowedSections.length === 0) {
+            allowedSections = ['pos', 'crm', 'alerts'];
+        }
 
         res.json({
             success: true,
@@ -72,11 +90,166 @@ app.post('/api/auth/login', (req, res) => {
                 id: user.id,
                 username: user.username,
                 fullName: user.full_name,
-                role: isManager ? 'MANAGER' : 'ADMIN',
-                roleLabel: isManager ? 'مدیر فروشگاه (دسترسی کامل)' : 'ادمین فروش (صندوق و CRM)',
+                role: isManager ? 'MANAGER' : (user.role || 'ADMIN'),
+                roleLabel: isManager ? 'مدیر فروشگاه (دسترسی کامل)' : `ادمین فروشگاه (${allowedSections.join('، ')})`,
                 allowedSections
             }
         });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// User Management APIs for Manager (تنظیمات کاربران و سطوح دسترسی)
+app.get('/api/admin/users', (req, res) => {
+    try {
+        const users = db.prepare(`
+            SELECT id, branch_id, username, full_name, role, phone, is_active, permissions, created_at
+            FROM users
+            ORDER BY id ASC
+        `).all();
+
+        const formatted = users.map(u => {
+            let perms = [];
+            try {
+                perms = u.permissions ? JSON.parse(u.permissions) : [];
+            } catch (e) {
+                perms = [];
+            }
+            if (u.role === 'MANAGER') perms = ALL_MODULE_SECTIONS;
+            else if (perms.length === 0) perms = ['pos', 'crm', 'alerts'];
+
+            return {
+                ...u,
+                permissions: perms
+            };
+        });
+
+        res.json({ success: true, data: formatted });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/admin/users', (req, res) => {
+    try {
+        const { username, password, full_name, role = 'ADMIN', phone = '', permissions = ['pos', 'crm', 'alerts'] } = req.body;
+
+        if (!username || String(username).trim().length < 2) {
+            return res.status(400).json({ success: false, error: 'نام کاربری باید حداقل ۲ کاراکتر باشد.' });
+        }
+        if (!password || String(password).trim().length < 3) {
+            return res.status(400).json({ success: false, error: 'رمز عبور باید حداقل ۳ کاراکتر باشد.' });
+        }
+        if (!full_name || String(full_name).trim().length < 2) {
+            return res.status(400).json({ success: false, error: 'نام و نام خانوادگی الزامی است.' });
+        }
+
+        const existing = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(String(username).trim());
+        if (existing) {
+            return res.status(400).json({ success: false, error: 'این نام کاربری قبلاً در سیستم ثبت شده است.' });
+        }
+
+        const cleanPerms = Array.isArray(permissions) ? permissions.filter(p => p !== 'ai') : ['pos', 'crm', 'alerts'];
+        const stmt = db.prepare(`
+            INSERT INTO users (branch_id, username, password_hash, full_name, role, phone, permissions, is_active)
+            VALUES (1, ?, ?, ?, ?, ?, ?, 1)
+        `);
+        const result = stmt.run(
+            String(username).trim(),
+            String(password).trim(),
+            String(full_name).trim(),
+            role,
+            phone ? String(phone).trim() : null,
+            JSON.stringify(cleanPerms)
+        );
+
+        res.json({
+            success: true,
+            message: 'کاربر جدید با موفقیت ایجاد شد.',
+            data: { id: result.lastInsertRowid, username, full_name, role, permissions: cleanPerms }
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.put('/api/admin/users/:id', (req, res) => {
+    try {
+        const userId = parseInt(req.params.id, 10);
+        const { full_name, phone, role, is_active, permissions, password } = req.body;
+
+        const user = db.prepare('SELECT id, username FROM users WHERE id = ?').get(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'کاربر یافت نشد.' });
+        }
+
+        const cleanPerms = Array.isArray(permissions) ? permissions.filter(p => p !== 'ai') : ['pos', 'crm', 'alerts'];
+        
+        if (password && String(password).trim().length > 0) {
+            db.prepare(`
+                UPDATE users 
+                SET full_name = COALESCE(?, full_name),
+                    phone = COALESCE(?, phone),
+                    role = COALESCE(?, role),
+                    is_active = COALESCE(?, is_active),
+                    permissions = ?,
+                    password_hash = ?
+                WHERE id = ?
+            `).run(
+                full_name ? String(full_name).trim() : null,
+                phone !== undefined ? String(phone).trim() : null,
+                role || null,
+                is_active !== undefined ? (is_active ? 1 : 0) : null,
+                JSON.stringify(cleanPerms),
+                String(password).trim(),
+                userId
+            );
+        } else {
+            db.prepare(`
+                UPDATE users 
+                SET full_name = COALESCE(?, full_name),
+                    phone = COALESCE(?, phone),
+                    role = COALESCE(?, role),
+                    is_active = COALESCE(?, is_active),
+                    permissions = ?
+                WHERE id = ?
+            `).run(
+                full_name ? String(full_name).trim() : null,
+                phone !== undefined ? String(phone).trim() : null,
+                role || null,
+                is_active !== undefined ? (is_active ? 1 : 0) : null,
+                JSON.stringify(cleanPerms),
+                userId
+            );
+        }
+
+        res.json({ success: true, message: 'مشخصات کاربر و سطوح دسترسی به‌روزرسانی شد.' });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.delete('/api/admin/users/:id', (req, res) => {
+    try {
+        const userId = parseInt(req.params.id, 10);
+        const user = db.prepare('SELECT id, username FROM users WHERE id = ?').get(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'کاربر یافت نشد.' });
+        }
+
+        if (user.username.toLowerCase() === 'manager' || userId === 7) {
+            return res.status(400).json({ success: false, error: 'امکان حذف کاربر اصلی مدیر سیستم وجود ندارد.' });
+        }
+
+        // Attempt deletion, or gracefully soft-delete if foreign key references exist
+        try {
+            db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+        } catch (fkErr) {
+            db.prepare('UPDATE users SET is_active = 0 WHERE id = ?').run(userId);
+        }
+
+        res.json({ success: true, message: 'کاربر با موفقیت از سیستم حذف یا غیرفعال شد.' });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
@@ -180,16 +353,6 @@ app.get('/api/pos/barcode/:barcode', (req, res) => {
         const item = posService.getByBarcode(req.params.barcode);
         if (!item) return res.status(404).json({ success: false, error: 'محصولی با این بارکد یافت نشد' });
         res.json({ success: true, data: item });
-    } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
-
-app.post('/api/pos/recommendations', (req, res) => {
-    try {
-        const { variantIds } = req.body;
-        const recs = posService.getCartRecommendations(variantIds || []);
-        res.json({ success: true, data: recs });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
