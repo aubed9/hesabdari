@@ -1,5 +1,6 @@
 // CRM, Customer 360, Loyalty, RFM & Wallet Service
 const db = require('../db/database');
+const { normalizeIranianMobile } = require('../utils/textUtils');
 
 const crmService = {
     // Get all customers with RFM and summary metrics
@@ -364,6 +365,164 @@ const crmService = {
         tx();
 
         return { inserted, skipped, totalProcessed: list.length };
+    },
+
+    // Custom Segmentation & Phone Extraction for Faraz SMS / IPPanel
+    getFarazSmsContacts(filters = {}) {
+        const {
+            tier = '',
+            rfmSegment = '',
+            minSpent = 0,
+            minOrders = 0,
+            lastOrderRecency = '',
+            hasWalletBalance = false,
+            hasLoyaltyPoints = false,
+            birthMonth = '',
+            groupName = 'مشتریان کیهان بیوتی',
+            searchQuery = ''
+        } = filters;
+
+        const allCustomers = this.getCustomers();
+        const currentMonth = new Date().toISOString().slice(5, 7);
+
+        const seenMobiles = new Set();
+        const results = [];
+        let invalidCount = 0;
+        let duplicateCount = 0;
+
+        for (const c of allCustomers) {
+            // Filter: Search Query
+            if (searchQuery) {
+                const q = searchQuery.toLowerCase().trim();
+                const matchName = (c.full_name || '').toLowerCase().includes(q);
+                const matchMob = (c.mobile || '').includes(q);
+                const matchCode = (c.customer_code || c.referral_code || '').toLowerCase().includes(q);
+                if (!matchName && !matchMob && !matchCode) continue;
+            }
+
+            // Filter: Tier
+            if (tier && c.loyalty_tier !== tier) continue;
+
+            // Filter: RFM Segment
+            if (rfmSegment && c.rfm_segment !== rfmSegment) continue;
+
+            // Filter: minSpent
+            if (minSpent > 0 && Number(c.total_spent || 0) < Number(minSpent)) continue;
+
+            // Filter: minOrders
+            if (minOrders > 0 && Number(c.total_orders_count || 0) < Number(minOrders)) continue;
+
+            // Filter: lastOrderRecency
+            if (lastOrderRecency === 'RECENT_30') {
+                if (c.days_since_last_order === null || c.days_since_last_order > 30) continue;
+            } else if (lastOrderRecency === 'DAYS_30_90') {
+                if (c.days_since_last_order === null || c.days_since_last_order <= 30 || c.days_since_last_order > 90) continue;
+            } else if (lastOrderRecency === 'OVER_90') {
+                if (c.days_since_last_order === null || c.days_since_last_order <= 90) continue;
+            } else if (lastOrderRecency === 'NEVER') {
+                if (Number(c.total_orders_count || 0) > 0) continue;
+            }
+
+            // Filter: hasWalletBalance
+            if (hasWalletBalance && Number(c.wallet_balance || 0) <= 0) continue;
+
+            // Filter: hasLoyaltyPoints
+            if (hasLoyaltyPoints && Number(c.loyalty_points || 0) <= 0) continue;
+
+            // Filter: birthMonth
+            if (birthMonth === 'CURRENT') {
+                if (!c.birth_date) continue;
+                const m = c.birth_date.slice(5, 7);
+                if (m !== currentMonth) continue;
+            }
+
+            // Normalize mobile
+            const cleanMobile = normalizeIranianMobile(c.mobile);
+            const isValid = /^09\d{9}$/.test(cleanMobile);
+
+            if (!isValid) {
+                invalidCount++;
+                continue;
+            }
+
+            if (seenMobiles.has(cleanMobile)) {
+                duplicateCount++;
+                continue;
+            }
+            seenMobiles.add(cleanMobile);
+
+            const nameParts = (c.full_name || '').trim().split(/\s+/);
+            const firstName = nameParts[0] || '';
+            const lastName = nameParts.slice(1).join(' ') || '';
+
+            results.push({
+                id: c.id,
+                mobile: cleanMobile,
+                fullName: c.full_name || '',
+                firstName: firstName,
+                lastName: lastName,
+                gender: 'خانم/آقا',
+                groupName: groupName.trim() || 'مشتریان کیهان بیوتی',
+                tier: c.loyalty_tier || 'BRONZE',
+                rfmSegment: c.rfm_segment || 'NEW',
+                walletBalance: Number(c.wallet_balance || 0),
+                loyaltyPoints: Number(c.loyalty_points || 0),
+                totalSpent: Number(c.total_spent || 0),
+                totalOrders: Number(c.total_orders_count || 0),
+                lastOrderDate: c.last_order_date || '-',
+                daysSinceLastOrder: c.days_since_last_order,
+                birthDate: c.birth_date || '-'
+            });
+        }
+
+        return {
+            totalValid: results.length,
+            invalidCount,
+            duplicateCount,
+            groupName: groupName.trim() || 'مشتریان کیهان بیوتی',
+            contacts: results
+        };
+    },
+
+    generateFarazSmsCsv(contacts) {
+        const headers = [
+            'شماره موبایل',
+            'نام',
+            'نام خانوادگی',
+            'پیشوند',
+            'نام کامل',
+            'گروه',
+            'تاریخ تولد',
+            'سطح مشتری',
+            'سگمنت RFM',
+            'مانده کیف پول (تومان)',
+            'امتیاز وفاداری',
+            'مجموع خرید (تومان)',
+            'تعداد فاکتور',
+            'آخرین خرید'
+        ];
+
+        let csv = '\uFEFF' + headers.join(',') + '\r\n';
+        for (const c of contacts) {
+            const row = [
+                `"${c.mobile}"`,
+                `"${(c.firstName || '').replace(/"/g, '""')}"`,
+                `"${(c.lastName || '').replace(/"/g, '""')}"`,
+                `"${c.gender || 'خانم/آقا'}"`,
+                `"${(c.fullName || '').replace(/"/g, '""')}"`,
+                `"${(c.groupName || '').replace(/"/g, '""')}"`,
+                `"${c.birthDate || ''}"`,
+                `"${c.tier || ''}"`,
+                `"${c.rfmSegment || ''}"`,
+                c.walletBalance || 0,
+                c.loyaltyPoints || 0,
+                c.totalSpent || 0,
+                c.totalOrders || 0,
+                `"${c.lastOrderDate || ''}"`
+            ];
+            csv += row.join(',') + '\r\n';
+        }
+        return csv;
     }
 };
 

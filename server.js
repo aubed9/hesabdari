@@ -736,6 +736,31 @@ app.get('/api/crm/birthdays', (req, res) => {
     }
 });
 
+app.post('/api/crm/sms-contacts', (req, res) => {
+    try {
+        const filters = req.body || {};
+        const result = crmService.getFarazSmsContacts(filters);
+        res.json({ success: true, data: result });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/crm/sms-export/csv', (req, res) => {
+    try {
+        const filters = req.body || {};
+        const result = crmService.getFarazSmsContacts(filters);
+        const csv = crmService.generateFarazSmsCsv(result.contacts);
+        
+        const filename = `FarazSMS_Contacts_${new Date().toISOString().slice(0, 10)}.csv`;
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(csv);
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // ==========================================
 // 7. ACCOUNTING & FINANCIAL APIS
 // ==========================================
