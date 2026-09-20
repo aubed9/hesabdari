@@ -43,23 +43,82 @@ const crm = {
                     </div>
                 </div>
 
-                <!-- RFM Summary Chips -->
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                    <div onclick="crm.filterSegment('Champions')" class="p-3 bg-purple-50 hover:bg-purple-100/70 border border-purple-200 rounded-xl cursor-pointer transition">
-                        <div class="text-slate-500">مشتریان قهرمان (Champions)</div>
-                        <div class="text-xl font-bold text-purple-800 mt-1">خرید منظم و سبد بالا</div>
+                <!-- RFM & Customer Segment Summary Cards with 1-Click Excel Download -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                    <!-- 1. خرید منظم و سبد بالا -->
+                    <div class="p-3.5 bg-gradient-to-br from-purple-50 to-indigo-50/50 border border-purple-200 rounded-2xl flex flex-col justify-between hover:shadow-md transition">
+                        <div onclick="crm.filterSegment('high_basket_regular')" class="cursor-pointer">
+                            <div class="flex items-center justify-between text-slate-600 font-medium">
+                                <span class="font-bold">مشتریان قهرمان (Champions)</span>
+                                <span id="count_high_basket_regular" class="px-2 py-0.5 bg-purple-100 text-purple-800 rounded-full font-bold text-[10px] font-mono">-</span>
+                            </div>
+                            <div class="text-sm font-black text-purple-900 mt-1">خرید منظم و سبد بالا</div>
+                            <div class="text-[11px] text-slate-500 mt-0.5">پرتکرارترین خریدها با بالاترین ارزش فاکتور</div>
+                        </div>
+                        <div class="pt-3 mt-2 border-t border-purple-100/80 flex items-center justify-between gap-2">
+                            <button onclick="crm.downloadSegmentExcel('high_basket_regular')" class="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl font-black flex items-center justify-center gap-1.5 shadow-sm transition text-xs cursor-pointer">
+                                <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+                                <span>دانلود اکسل این دسته</span>
+                            </button>
+                        </div>
                     </div>
-                    <div onclick="crm.filterSegment('Loyal')" class="p-3 bg-emerald-50 hover:bg-emerald-100/70 border border-emerald-200 rounded-xl cursor-pointer transition">
-                        <div class="text-slate-500">مشتریان وفادار (Loyal)</div>
-                        <div class="text-xl font-bold text-emerald-800 mt-1">تکرار خرید مداوم</div>
+
+                    <!-- 2. تکرار خرید مداوم -->
+                    <div class="p-3.5 bg-gradient-to-br from-emerald-50 to-teal-50/50 border border-emerald-200 rounded-2xl flex flex-col justify-between hover:shadow-md transition">
+                        <div onclick="crm.filterSegment('regular_buyers')" class="cursor-pointer">
+                            <div class="flex items-center justify-between text-slate-600 font-medium">
+                                <span class="font-bold">مشتریان وفادار (Loyal)</span>
+                                <span id="count_regular_buyers" class="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-bold text-[10px] font-mono">-</span>
+                            </div>
+                            <div class="text-sm font-black text-emerald-900 mt-1">تکرار خرید مداوم</div>
+                            <div class="text-[11px] text-slate-500 mt-0.5">مشتریان راضی با چرخه خرید پیوسته و منظم</div>
+                        </div>
+                        <div class="pt-3 mt-2 border-t border-emerald-100/80 flex items-center justify-between gap-2">
+                            <button onclick="crm.downloadSegmentExcel('regular_buyers')" class="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl font-black flex items-center justify-center gap-1.5 shadow-sm transition text-xs cursor-pointer">
+                                <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+                                <span>دانلود اکسل این دسته</span>
+                            </button>
+                        </div>
                     </div>
-                    <div onclick="crm.filterSegment('At Risk')" class="p-3 bg-amber-50 hover:bg-amber-100/70 border border-amber-200 rounded-xl cursor-pointer transition">
-                        <div class="text-slate-500">در معرض ریزش (At Risk)</div>
-                        <div class="text-xl font-bold text-amber-800 mt-1">عدم مراجعه بالای ۴۵ روز</div>
+
+                    <!-- 3. عدم مراجعه ۳۵ روزه -->
+                    <div class="p-3.5 bg-gradient-to-br from-amber-50 to-orange-50/50 border border-amber-200 rounded-2xl flex flex-col justify-between hover:shadow-md transition">
+                        <div onclick="crm.filterSegment('absent_35_days')" class="cursor-pointer">
+                            <div class="flex items-center justify-between text-slate-600 font-medium">
+                                <span class="font-bold">در معرض ریزش (At Risk)</span>
+                                <span id="count_absent_35_days" class="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full font-bold text-[10px] font-mono">-</span>
+                            </div>
+                            <div class="text-sm font-black text-amber-900 mt-1">عدم مراجعه بالای ۳۵ روز</div>
+                            <div class="text-[11px] text-slate-500 mt-0.5">مشتریان قبلی بدون خرید در ۳۵ روز اخیر</div>
+                        </div>
+                        <div class="pt-3 mt-2 border-t border-amber-100/80 flex items-center justify-between gap-2">
+                            <button onclick="crm.downloadSegmentExcel('absent_35_days')" class="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl font-black flex items-center justify-center gap-1.5 shadow-sm transition text-xs cursor-pointer">
+                                <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+                                <span>دانلود اکسل این دسته</span>
+                            </button>
+                        </div>
                     </div>
-                    <div onclick="crm.filterSegment('New')" class="p-3 bg-indigo-50 hover:bg-indigo-100/70 border border-indigo-200 rounded-xl cursor-pointer transition">
-                        <div class="text-slate-500">مشتریان جدید (New)</div>
-                        <div class="text-xl font-bold text-indigo-800 mt-1">نیازمند ترغیب خرید دوم</div>
+
+                    <!-- 4. مشتریان جدید و سایر موارد -->
+                    <div class="p-3.5 bg-gradient-to-br from-blue-50 to-indigo-50/50 border border-blue-200 rounded-2xl flex flex-col justify-between hover:shadow-md transition">
+                        <div onclick="crm.filterSegment('new_customers')" class="cursor-pointer">
+                            <div class="flex items-center justify-between text-slate-600 font-medium">
+                                <span class="font-bold">مشتریان جدید و غیره</span>
+                                <span id="count_new_customers" class="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full font-bold text-[10px] font-mono">-</span>
+                            </div>
+                            <div class="text-sm font-black text-blue-900 mt-1">مشتریان جدید (New)</div>
+                            <div class="text-[11px] text-slate-500 mt-0.5">اعضای تازه ثبت‌نام و نیازمند پیگیری</div>
+                        </div>
+                        <div class="pt-3 mt-2 border-t border-blue-100/80 flex items-center justify-between gap-1.5">
+                            <button onclick="crm.downloadSegmentExcel('new_customers')" class="flex-1 py-2 px-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl font-black flex items-center justify-center gap-1 shadow-sm transition text-[11px] cursor-pointer">
+                                <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>
+                                <span>دانلود اکسل جدیدها</span>
+                            </button>
+                            <button onclick="crm.openOtherExportsMenu()" class="py-2 px-2.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-1 transition text-[11px] cursor-pointer shadow-xs" title="سایر خروجی‌های اکسل">
+                                <i data-lucide="more-horizontal" class="w-4 h-4 text-purple-600"></i>
+                                <span>سایر موارد...</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -80,11 +139,13 @@ const crm = {
                         </select>
 
                         <select id="crmSegmentFilter" onchange="crm.applyFilters()" class="p-2 border border-slate-200 rounded-xl bg-white font-medium">
-                            <option value="">همه سگمنت‌های RFM</option>
-                            <option value="Champions">قهرمانان (Champions)</option>
-                            <option value="Loyal">وفادار (Loyal)</option>
-                            <option value="At Risk">در معرض ریزش (At Risk)</option>
-                            <option value="New">جدید (New)</option>
+                            <option value="">همه سگمنت‌ها</option>
+                            <option value="high_basket_regular">خرید منظم و سبد بالا (قهرمانان)</option>
+                            <option value="regular_buyers">تکرار خرید مداوم (وفادار)</option>
+                            <option value="absent_35_days">عدم مراجعه بالای ۳۵ روز (در معرض ریزش)</option>
+                            <option value="new_customers">مشتریان جدید (New)</option>
+                            <option value="wallet_balance">دارای مانده کیف پول</option>
+                            <option value="vip_gold">سطح VIP و طلایی</option>
                         </select>
                     </div>
                 </div>
@@ -105,8 +166,32 @@ const crm = {
             this.customers = json.data || [];
             this.filteredCustomers = [...this.customers];
             this.renderCustomerTable();
+            this.loadSegmentCounts();
         } catch (e) {
             document.getElementById('customerTableContainer').innerHTML = '<div class="p-6 text-center text-rose-500">خطا در دریافت لیست مشتریان</div>';
+        }
+    },
+
+    async loadSegmentCounts() {
+        try {
+            const res = await fetch('/api/crm/segment-counts');
+            const json = await res.json();
+            if (json.success && json.data) {
+                const c = json.data;
+                const elHigh = document.getElementById('count_high_basket_regular');
+                if (elHigh) elHigh.textContent = (c.high_basket_regular || 0) + ' مشتری';
+
+                const elLoyal = document.getElementById('count_regular_buyers');
+                if (elLoyal) elLoyal.textContent = (c.regular_buyers || 0) + ' مشتری';
+
+                const elAbsent = document.getElementById('count_absent_35_days');
+                if (elAbsent) elAbsent.textContent = (c.absent_35_days || 0) + ' مشتری';
+
+                const elNew = document.getElementById('count_new_customers');
+                if (elNew) elNew.textContent = (c.new_customers || 0) + ' مشتری';
+            }
+        } catch (e) {
+            console.warn('Failed to load segment counts', e);
         }
     },
 
@@ -206,14 +291,188 @@ const crm = {
         const seg = document.getElementById('crmSegmentFilter')?.value || '';
 
         this.filteredCustomers = this.customers.filter(c => {
-            const matchesQ = !q || (c.full_name && c.full_name.toLowerCase().includes(q)) || (c.mobile && c.mobile.includes(q)) || (c.customer_code && c.customer_code.toLowerCase().includes(q));
+            const matchesQ = !q || 
+                (c.full_name && c.full_name.toLowerCase().includes(q)) || 
+                (c.mobile && c.mobile.includes(q)) || 
+                (c.referral_code && c.referral_code.toLowerCase().includes(q)) ||
+                (c.customer_code && c.customer_code.toLowerCase().includes(q));
+
             const matchesTier = !tier || c.loyalty_tier === tier;
-            const matchesSeg = !seg || c.rfm_segment === seg;
+
+            let matchesSeg = true;
+            if (seg === 'high_basket_regular' || seg === 'Champions') {
+                matchesSeg = c.rfm_segment === 'Champions' || (c.total_orders_count >= 2 && c.total_spent >= 2000000 && (c.days_since_last_order === null || c.days_since_last_order <= 35));
+            } else if (seg === 'regular_buyers' || seg === 'Loyal') {
+                matchesSeg = c.rfm_segment === 'Loyal' || (c.total_orders_count >= 2 && (c.days_since_last_order === null || c.days_since_last_order <= 60));
+            } else if (seg === 'absent_35_days' || seg === 'At Risk') {
+                matchesSeg = (c.total_orders_count > 0 && c.days_since_last_order !== null && c.days_since_last_order >= 35) || c.rfm_segment === 'At Risk';
+            } else if (seg === 'new_customers' || seg === 'New') {
+                matchesSeg = c.total_orders_count <= 1 || c.rfm_segment === 'New' || c.rfm_segment === 'NEW';
+            } else if (seg === 'wallet_balance') {
+                matchesSeg = Number(c.wallet_balance || 0) > 0;
+            } else if (seg === 'vip_gold') {
+                matchesSeg = c.loyalty_tier === 'VIP' || c.loyalty_tier === 'GOLD';
+            } else if (seg) {
+                matchesSeg = c.rfm_segment === seg;
+            }
+
             return matchesQ && matchesTier && matchesSeg;
         });
 
         this.renderCustomerTable();
     },
+
+    // 1-Click Excel Download for Specific Customer Segment
+    async downloadSegmentExcel(segmentKey) {
+        try {
+            app.showNotification('در حال آماده‌سازی و دانلود فایل اکسل...', 'info');
+            const res = await fetch(`/api/crm/export-segment/csv?segment=${segmentKey}`);
+            if (!res.ok) throw new Error('خطا در دریافت فایل اکسل از سرور');
+
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+
+            const disposition = res.headers.get('content-disposition') || '';
+            let filename = `مشتریان_${segmentKey}.csv`;
+            const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+            if (utf8Match && utf8Match[1]) {
+                filename = decodeURIComponent(utf8Match[1]);
+            } else {
+                const asciiMatch = disposition.match(/filename="([^"]+)"/i);
+                if (asciiMatch && asciiMatch[1]) filename = asciiMatch[1];
+            }
+
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            }, 1000);
+
+            app.showNotification('فایل اکسل مشتریان با موفقیت دانلود شد', 'success');
+        } catch (err) {
+            app.showNotification('خطا در دانلود فایل اکسل: ' + err.message, 'error');
+        }
+    },
+
+    // Export Currently Filtered Customers to Excel CSV
+    exportCustomersCsv() {
+        const list = this.filteredCustomers || this.customers || [];
+        if (list.length === 0) {
+            app.showNotification('هیچ رکوردی برای خروجی اکسل وجود ندارد', 'warning');
+            return;
+        }
+
+        const headers = [
+            'ردیف',
+            'کد اشتراک',
+            'نام و نام خانوادگی',
+            'شماره همراه',
+            'دسته‌بندی / سگمنت',
+            'سطح وفاداری',
+            'مانده کیف پول (تومان)',
+            'امتیاز باشگاه',
+            'تعداد سفارش‌ها',
+            'مجموع خرید (تومان)',
+            'میانگین هر خرید (تومان)',
+            'تاریخ آخرین خرید',
+            'روزهای سپری‌شده',
+            'نوع پوست',
+            'ترجیحات مو / یادداشت'
+        ];
+
+        let csv = '\uFEFF' + headers.join(',') + '\r\n';
+        list.forEach((c, idx) => {
+            const row = [
+                idx + 1,
+                `"${(c.referral_code || c.customer_code || ('CUST-' + c.id)).replace(/"/g, '""')}"`,
+                `"${(c.full_name || '').replace(/"/g, '""')}"`,
+                `"${c.mobile || ''}"`,
+                `"${(c.rfm_segment || 'عادی').replace(/"/g, '""')}"`,
+                `"${c.loyalty_tier || 'BRONZE'}"`,
+                Number(c.wallet_balance || 0),
+                Number(c.loyalty_points || 0),
+                Number(c.total_orders_count || 0),
+                Number(c.total_spent || 0),
+                Math.round(Number(c.average_order_value || 0)),
+                `"${c.last_order_date || '-'}"`,
+                c.days_since_last_order !== null && c.days_since_last_order !== undefined ? c.days_since_last_order : '-',
+                `"${(c.skin_type || '-').replace(/"/g, '""')}"`,
+                `"${(c.notes || c.hair_preferences || '-').replace(/"/g, '""')}"`
+            ];
+            csv += row.join(',') + '\r\n';
+        });
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `لیست_مشتریان_انتخابی_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }, 1000);
+        app.showNotification(`خروجی اکسل ${list.length} مشتری با موفقیت دانلود شد`, 'success');
+    },
+
+    // Modal: Other Excel Export Segments
+    openOtherExportsMenu() {
+        app.openModal(`
+            <h3 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2">
+                <i data-lucide="file-spreadsheet" class="w-5 h-5 text-emerald-600"></i>
+                <span>سایر خروجی‌های اکسل مشتریان (دسته‌های اختصاصی)</span>
+            </h3>
+            <p class="text-xs text-slate-500 mb-4">برای دانلود اکسل هر دسته، روی گزینه مورد نظر کلیک فرمایید:</p>
+
+            <div class="space-y-3 text-xs">
+                <div class="p-3 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200 rounded-xl flex items-center justify-between transition cursor-pointer" onclick="crm.downloadSegmentExcel('wallet_balance'); app.closeModal();">
+                    <div>
+                        <div class="font-bold text-emerald-900 text-sm">اکسل مشتریان دارای مانده کیف پول</div>
+                        <div class="text-[11px] text-emerald-700 mt-0.5">شامل مشتریانی که شارژ و بستانکاری نقدی در کیف پول دارند</div>
+                    </div>
+                    <button class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold flex items-center gap-1">
+                        <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                        <span>دانلود اکسل</span>
+                    </button>
+                </div>
+
+                <div class="p-3 bg-amber-50 hover:bg-amber-100/80 border border-amber-200 rounded-xl flex items-center justify-between transition cursor-pointer" onclick="crm.downloadSegmentExcel('vip_gold'); app.closeModal();">
+                    <div>
+                        <div class="font-bold text-amber-900 text-sm">اکسل مشتریان سطح VIP و طلایی (Gold)</div>
+                        <div class="text-[11px] text-amber-700 mt-0.5">ویژه ارائه آفرها و خدمات ویژه به مشتریان رده‌بالا</div>
+                    </div>
+                    <button class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold flex items-center gap-1">
+                        <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                        <span>دانلود اکسل</span>
+                    </button>
+                </div>
+
+                <div class="p-3 bg-purple-50 hover:bg-purple-100/80 border border-purple-200 rounded-xl flex items-center justify-between transition cursor-pointer" onclick="crm.downloadSegmentExcel('all'); app.closeModal();">
+                    <div>
+                        <div class="font-bold text-purple-900 text-sm">اکسل جامع کل مشتریان فروشگاه</div>
+                        <div class="text-[11px] text-purple-700 mt-0.5">دریافت دیتابیس کامل اعضای باشگاه با کلیه مشخصات</div>
+                    </div>
+                    <button class="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold flex items-center gap-1">
+                        <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                        <span>دانلود اکسل</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex justify-end pt-4 border-t border-slate-100 mt-4">
+                <button onclick="app.closeModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-bold transition">بستن</button>
+            </div>
+        `);
+        lucide.createIcons();
+    },
+
 
     // Customer 360 Modal
     async openProfile360(customerId) {

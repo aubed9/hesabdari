@@ -761,6 +761,46 @@ app.post('/api/crm/sms-export/csv', (req, res) => {
     }
 });
 
+app.get('/api/crm/segment-counts', (req, res) => {
+    try {
+        const segments = ['high_basket_regular', 'regular_buyers', 'absent_35_days', 'new_customers', 'wallet_balance', 'vip_gold', 'all'];
+        const counts = {};
+        for (const s of segments) {
+            counts[s] = crmService.getSegmentCustomers(s).count;
+        }
+        res.json({ success: true, data: counts });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.get('/api/crm/export-segment/csv', (req, res) => {
+    try {
+        const segment = req.query.segment || 'all';
+        const result = crmService.generateSegmentExcelCsv(segment);
+        const encoded = encodeURIComponent(result.filename);
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"; filename*=UTF-8''${encoded}`);
+        res.send(result.csv);
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/crm/export-segment/csv', (req, res) => {
+    try {
+        const segment = req.body.segment || req.query.segment || 'all';
+        const result = crmService.generateSegmentExcelCsv(segment);
+        const encoded = encodeURIComponent(result.filename);
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"; filename*=UTF-8''${encoded}`);
+        res.send(result.csv);
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+
 // ==========================================
 // 7. ACCOUNTING & FINANCIAL APIS
 // ==========================================

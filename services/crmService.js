@@ -523,6 +523,129 @@ const crmService = {
             csv += row.join(',') + '\r\n';
         }
         return csv;
+    },
+
+    // Get customers by specific segment (خرید منظم و سبد بالا، تکرار خرید، عدم مراجعه ۳۵ روزه و غیره)
+    getSegmentCustomers(segmentKey) {
+        const all = this.getCustomers();
+        let segmentTitle = '';
+        let filtered = [];
+
+        switch (segmentKey) {
+            case 'high_basket_regular': // ۱. خرید منظم و سبد بالا
+            case 'champions':
+                segmentTitle = 'مشتریان با خرید منظم و سبد بالا (قهرمانان)';
+                filtered = all.filter(c => 
+                    c.rfm_segment === 'Champions' || 
+                    (c.total_orders_count >= 2 && c.total_spent >= 2000000 && (c.days_since_last_order === null || c.days_since_last_order <= 35))
+                );
+                break;
+
+            case 'regular_buyers': // ۲. تکرار خرید مداوم / خرید منظم
+            case 'loyal':
+                segmentTitle = 'مشتریان وفادار با تکرار خرید مداوم';
+                filtered = all.filter(c => 
+                    c.rfm_segment === 'Loyal' || 
+                    (c.total_orders_count >= 2 && (c.days_since_last_order === null || c.days_since_last_order <= 60))
+                );
+                break;
+
+            case 'absent_35_days': // ۳. عدم مراجعه ۳۵ روزه (در معرض ریزش)
+            case 'at_risk':
+                segmentTitle = 'مشتریان با عدم مراجعه بالای ۳۵ روز (در معرض ریزش)';
+                filtered = all.filter(c => 
+                    (c.total_orders_count > 0 && c.days_since_last_order !== null && c.days_since_last_order >= 35) ||
+                    c.rfm_segment === 'At Risk'
+                );
+                break;
+
+            case 'new_customers': // ۴. مشتریان جدید
+            case 'new':
+                segmentTitle = 'مشتریان جدید (نیازمند ترغیب خرید دوم)';
+                filtered = all.filter(c => 
+                    c.total_orders_count <= 1 || 
+                    c.rfm_segment === 'New' || 
+                    c.rfm_segment === 'NEW'
+                );
+                break;
+
+            case 'wallet_balance': // و غیره ۱: دارای مانده کیف پول
+                segmentTitle = 'مشتریان دارای مانده کیف پول';
+                filtered = all.filter(c => Number(c.wallet_balance || 0) > 0);
+                break;
+
+            case 'vip_gold': // و غیره ۲: مشتریان VIP و طلایی
+                segmentTitle = 'مشتریان طلایی و VIP';
+                filtered = all.filter(c => c.loyalty_tier === 'VIP' || c.loyalty_tier === 'GOLD');
+                break;
+
+            case 'all': // کل مشتریان
+            default:
+                segmentTitle = 'کل مشتریان فروشگاه';
+                filtered = all;
+                break;
+        }
+
+        return {
+            segmentKey,
+            segmentTitle,
+            count: filtered.length,
+            customers: filtered
+        };
+    },
+
+    // Generate Excel-compatible CSV for customer segment with UTF-8 BOM
+    generateSegmentExcelCsv(segmentKey) {
+        const { segmentTitle, customers } = this.getSegmentCustomers(segmentKey);
+
+        const headers = [
+            'ردیف',
+            'کد اشتراک',
+            'نام و نام خانوادگی',
+            'شماره همراه',
+            'دسته‌بندی / سگمنت',
+            'سطح وفاداری',
+            'مانده کیف پول (تومان)',
+            'امتیاز باشگاه',
+            'تعداد کل سفارش‌ها',
+            'مجموع خرید (تومان)',
+            'میانگین هر خرید (تومان)',
+            'تاریخ آخرین خرید',
+            'روزهای سپری‌شده از آخرین خرید',
+            'نوع پوست',
+            'ترجیحات مو / یادداشت'
+        ];
+
+        let csv = '\uFEFF' + headers.join(',') + '\r\n';
+
+        customers.forEach((c, idx) => {
+            const cleanMobile = normalizeIranianMobile(c.mobile);
+            const row = [
+                idx + 1,
+                `"${(c.referral_code || c.customer_code || ('CUST-' + c.id)).replace(/"/g, '""')}"`,
+                `"${(c.full_name || '').replace(/"/g, '""')}"`,
+                `"${cleanMobile}"`,
+                `"${(c.rfm_segment || 'عادی').replace(/"/g, '""')}"`,
+                `"${c.loyalty_tier || 'BRONZE'}"`,
+                Number(c.wallet_balance || 0),
+                Number(c.loyalty_points || 0),
+                Number(c.total_orders_count || 0),
+                Number(c.total_spent || 0),
+                Math.round(Number(c.average_order_value || 0)),
+                `"${c.last_order_date || '-'}"`,
+                c.days_since_last_order !== null && c.days_since_last_order !== undefined ? c.days_since_last_order : '-',
+                `"${(c.skin_type || '-').replace(/"/g, '""')}"`,
+                `"${(c.notes || c.hair_preferences || '-').replace(/"/g, '""')}"`
+            ];
+            csv += row.join(',') + '\r\n';
+        });
+
+        const safeKey = segmentKey.replace(/[^a-zA-Z0-9_]/g, '_');
+        return {
+            segmentTitle,
+            csv,
+            filename: `customers_${safeKey}_${new Date().toISOString().slice(0, 10)}.csv`
+        };
     }
 };
 
