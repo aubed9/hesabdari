@@ -119,4 +119,24 @@ describe('Tier 1: Customer Segmentation & Excel Export Suite', () => {
         assert.ok(exportRes.csv.includes('مشتری قهرمان ۱'));
         assert.ok(exportRes.filename.includes('high_basket_regular'));
     });
+
+    it('T1-SEG-7: Preserves leading zero in phone numbers for Excel with formula text format and supplies panel-compatible column', () => {
+        const exportRes = crmService.generateSegmentExcelCsv('high_basket_regular');
+        // Customer 101 has mobile '09121111111'
+        // In CSV for Excel, it must be formatted as ="09121111111" so Excel does not strip the leading zero
+        assert.ok(exportRes.csv.includes('="09121111111"'), 'Must include phone number with leading 0 formatted as Excel formula string');
+        assert.ok(exportRes.csv.includes('"9121111111"'), 'Must also include phone without leading 0 for panels requiring 9...');
+
+        // Verify Faraz SMS export also preserves leading zero
+        const farazCsv = crmService.generateFarazSmsCsv([{
+            id: 101,
+            mobile: '09121111111',
+            firstName: 'مونا',
+            lastName: 'قریشی',
+            fullName: 'مونا قریشی',
+            groupName: 'قهرمانان'
+        }]);
+        assert.ok(farazCsv.includes('="09121111111"'), 'Faraz SMS CSV must include leading zero formula');
+        assert.ok(farazCsv.includes('"9121111111"'), 'Faraz SMS CSV must include without-zero column');
+    });
 });

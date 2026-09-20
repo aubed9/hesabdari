@@ -361,7 +361,10 @@ const crm = {
 
     // Export Currently Filtered Customers to Excel CSV
     exportCustomersCsv() {
-        const list = this.filteredCustomers || this.customers || [];
+        const list = (this.filteredCustomers && this.filteredCustomers.length > 0) 
+            ? this.filteredCustomers 
+            : (this.customers || []);
+
         if (list.length === 0) {
             app.showNotification('هیچ رکوردی برای خروجی اکسل وجود ندارد', 'warning');
             return;
@@ -372,6 +375,7 @@ const crm = {
             'کد اشتراک',
             'نام و نام خانوادگی',
             'شماره همراه',
+            'شماره بدون صفر (ویژه پنل)',
             'دسته‌بندی / سگمنت',
             'سطح وفاداری',
             'مانده کیف پول (تومان)',
@@ -387,11 +391,29 @@ const crm = {
 
         let csv = '\uFEFF' + headers.join(',') + '\r\n';
         list.forEach((c, idx) => {
+            let mob = String(c.mobile || '').trim();
+            // Convert Persian/Arabic digits to English
+            const pDigits = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
+            const aDigits = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
+            for (let i = 0; i < 10; i++) {
+                mob = mob.replace(new RegExp(pDigits[i], 'g'), String(i)).replace(new RegExp(aDigits[i], 'g'), String(i));
+            }
+            mob = mob.replace(/[^\d]/g, '');
+            if (mob.startsWith('0098')) mob = '0' + mob.slice(4);
+            else if (mob.startsWith('98') && mob.length === 12) mob = '0' + mob.slice(2);
+            else if (mob.length === 10 && mob.startsWith('9')) mob = '0' + mob;
+            else if (mob.length > 0 && !mob.startsWith('0')) mob = '0' + mob;
+
+            const mobWithZero = mob;
+            const mobWithoutZero = mobWithZero.startsWith('0') ? mobWithZero.slice(1) : mobWithZero;
+            const excelMobile = mobWithZero ? `="${mobWithZero}"` : '""';
+
             const row = [
                 idx + 1,
                 `"${(c.referral_code || c.customer_code || ('CUST-' + c.id)).replace(/"/g, '""')}"`,
                 `"${(c.full_name || '').replace(/"/g, '""')}"`,
-                `"${c.mobile || ''}"`,
+                excelMobile,
+                `"${mobWithoutZero}"`,
                 `"${(c.rfm_segment || 'عادی').replace(/"/g, '""')}"`,
                 `"${c.loyalty_tier || 'BRONZE'}"`,
                 Number(c.wallet_balance || 0),
@@ -419,7 +441,7 @@ const crm = {
             document.body.removeChild(a);
             window.URL.revokeObjectURL(url);
         }, 1000);
-        app.showNotification(`خروجی اکسل ${list.length} مشتری با موفقیت دانلود شد`, 'success');
+        app.showNotification(`خروجی اکسل ${list.length} مشتری با موفقیت دانلود شد (همراه با ۰ اول شماره‌ها)`, 'success');
     },
 
     // Modal: Other Excel Export Segments
@@ -933,27 +955,6 @@ const crm = {
         } catch (e) {
             app.showNotification('خطا در ورود اطلاعات مشتریان', 'error');
         }
-    },
-
-    exportCustomersCsv() {
-        if (!this.customers || this.customers.length === 0) {
-            app.showNotification('اطلاعاتی برای خروجی وجود ندارد', 'warning');
-            return;
-        }
-
-        let csv = 'کد اشتراک,نام و نام خانوادگی,شماره همراه,سطح وفاداری,امتیاز,کیف پول,تعداد سفارش,مجموع خرید,سگمنت RFM\n';
-        for (const c of this.customers) {
-            csv += `"${c.customer_code || ''}","${c.full_name || ''}","${c.mobile || ''}","${c.loyalty_tier || ''}",${c.loyalty_points || 0},${c.wallet_balance || 0},${c.total_orders_count || 0},${c.total_spent || 0},"${c.rfm_segment || ''}"\n`;
-        }
-
-        const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `customers_keyhan_beauty_${new Date().toISOString().slice(0, 10)}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
-        app.showNotification('فایل اکسل مشتریان دانلود شد', 'success');
     },
 
     // =========================================================

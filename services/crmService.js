@@ -1,6 +1,6 @@
 // CRM, Customer 360, Loyalty, RFM & Wallet Service
 const db = require('../db/database');
-const { normalizeIranianMobile } = require('../utils/textUtils');
+const { normalizeIranianMobile, formatMobileForExcel, formatMobileWithoutZero } = require('../utils/textUtils');
 
 const crmService = {
     // Get all customers with RFM and summary metrics
@@ -486,7 +486,8 @@ const crmService = {
 
     generateFarazSmsCsv(contacts) {
         const headers = [
-            'شماره موبایل',
+            'شماره موبایل (با صفر)',
+            'شماره موبایل (بدون صفر)',
             'نام',
             'نام خانوادگی',
             'پیشوند',
@@ -504,8 +505,11 @@ const crmService = {
 
         let csv = '\uFEFF' + headers.join(',') + '\r\n';
         for (const c of contacts) {
+            const excelMobile = formatMobileForExcel(c.mobile);
+            const noZeroMobile = formatMobileWithoutZero(c.mobile);
             const row = [
-                `"${c.mobile}"`,
+                excelMobile,
+                `"${noZeroMobile}"`,
                 `"${(c.firstName || '').replace(/"/g, '""')}"`,
                 `"${(c.lastName || '').replace(/"/g, '""')}"`,
                 `"${c.gender || 'خانم/آقا'}"`,
@@ -603,6 +607,7 @@ const crmService = {
             'کد اشتراک',
             'نام و نام خانوادگی',
             'شماره همراه',
+            'شماره بدون صفر (ویژه پنل)',
             'دسته‌بندی / سگمنت',
             'سطح وفاداری',
             'مانده کیف پول (تومان)',
@@ -619,12 +624,14 @@ const crmService = {
         let csv = '\uFEFF' + headers.join(',') + '\r\n';
 
         customers.forEach((c, idx) => {
-            const cleanMobile = normalizeIranianMobile(c.mobile);
+            const excelMobile = formatMobileForExcel(c.mobile);
+            const noZeroMobile = formatMobileWithoutZero(c.mobile);
             const row = [
                 idx + 1,
                 `"${(c.referral_code || c.customer_code || ('CUST-' + c.id)).replace(/"/g, '""')}"`,
                 `"${(c.full_name || '').replace(/"/g, '""')}"`,
-                `"${cleanMobile}"`,
+                excelMobile,
+                `"${noZeroMobile}"`,
                 `"${(c.rfm_segment || 'عادی').replace(/"/g, '""')}"`,
                 `"${c.loyalty_tier || 'BRONZE'}"`,
                 Number(c.wallet_balance || 0),

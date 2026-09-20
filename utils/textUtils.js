@@ -43,11 +43,29 @@ function normalizeIranianMobile(raw) {
     if (/^09\d{9}$/.test(str)) {
         return str;
     }
+    if (str.length > 0 && !str.startsWith('0')) {
+        str = '0' + str;
+    }
     return str;
+}
+
+function formatMobileForExcel(raw) {
+    const mob = normalizeIranianMobile(raw);
+    if (!mob) return '""';
+    // Format as ="09..." so Microsoft Excel treats it as a string formula and preserves the leading zero
+    return `="${mob}"`;
+}
+
+function formatMobileWithoutZero(raw) {
+    const mob = normalizeIranianMobile(raw);
+    if (!mob) return '';
+    return mob.startsWith('0') ? mob.slice(1) : mob;
 }
 
 module.exports = {
     normalizePersian,
     roundMoney,
-    normalizeIranianMobile
+    normalizeIranianMobile,
+    formatMobileForExcel,
+    formatMobileWithoutZero
 };

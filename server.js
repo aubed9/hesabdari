@@ -1071,6 +1071,28 @@ app.get('/api/export/:entity', (req, res) => {
                 JOIN chart_of_accounts coa ON jl.account_id = coa.id
                 ORDER BY je.id DESC LIMIT 500
             `).all();
+        } else if (entity === 'customers') {
+            const { normalizeIranianMobile, formatMobileForExcel, formatMobileWithoutZero } = require('./utils/textUtils');
+            const custs = crmService.getCustomers();
+            rows = custs.map((c, idx) => {
+                const excelMobile = formatMobileForExcel(c.mobile);
+                const noZeroMobile = formatMobileWithoutZero(c.mobile);
+                return {
+                    'ردیف': idx + 1,
+                    'کد اشتراک': c.referral_code || c.customer_code || ('CUST-' + c.id),
+                    'نام و نام خانوادگی': c.full_name || '',
+                    'شماره همراه': excelMobile,
+                    'شماره بدون صفر (ویژه پنل)': noZeroMobile,
+                    'دسته‌بندی': c.rfm_segment || 'عادی',
+                    'سطح وفاداری': c.loyalty_tier || 'BRONZE',
+                    'کیف پول (تومان)': c.wallet_balance || 0,
+                    'امتیاز': c.loyalty_points || 0,
+                    'تعداد سفارش': c.total_orders_count || 0,
+                    'مجموع خرید (تومان)': c.total_spent || 0,
+                    'آخرین خرید': c.last_order_date || '-'
+                };
+            });
+            filename = `customers_export_${new Date().toISOString().slice(0, 10)}.csv`;
         }
 
         if (rows.length === 0) {
