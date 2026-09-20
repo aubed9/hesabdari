@@ -231,10 +231,15 @@ const posService = {
 
                 // Deposit payment if any
                 for (const p of payments) {
+                    const method = p.method === 'CARD_TO_CARD' ? 'ONLINE' : p.method;
+                    const refCode = p.method === 'CARD_TO_CARD' 
+                        ? `کارت‌به‌کارت ${p.ref ? `[پیگیری: ${p.ref}]` : ''}` 
+                        : (p.ref || `POS-${Math.floor(100000 + Math.random() * 900000)}`);
+
                     db.prepare(`
                         INSERT INTO payments (order_id, payment_method, amount, card_last_digits, reference_code, created_at)
                         VALUES (?, ?, ?, ?, ?, ?)
-                    `).run(orderId, p.method, p.amount, p.cardDigits || null, p.ref || `POS-${Math.floor(100000 + Math.random() * 900000)}`, orderCreatedAt);
+                    `).run(orderId, method, p.amount, p.cardDigits || null, refCode, orderCreatedAt);
                 }
 
                 return {
@@ -495,18 +500,30 @@ const posService = {
                 'CASH': accCash,
                 'CARD': accBank,
                 'ONLINE': accBank,
+                'CARD_TO_CARD': accBank,
                 'WALLET': accWallet ? accWallet.id : accBank,
                 'POINTS': accPointsDisc ? accPointsDisc.id : accDisc,
                 'CHEQUE': accNotes ? accNotes.id : accBank
             };
 
+            const methodPersianNames = {
+                'CASH': 'نقدی (صندوق)',
+                'CARD': 'کارتخوان (پوز)',
+                'ONLINE': 'کارت به کارت / انتقال بانکی',
+                'CARD_TO_CARD': 'کارت به کارت (انتقال بانکی)',
+                'WALLET': 'کیف پول مشتری',
+                'POINTS': 'تخفیف امتیاز وفاداری',
+                'CHEQUE': 'چک دریافتی'
+            };
+
             for (const p of finalPayments) {
                 if (p.amount > 0) {
                     const targetAcc = paymentAccountMap[p.method] || accBank;
+                    const methodName = methodPersianNames[p.method] || p.method;
                     db.prepare(`
                         INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit, description)
                         VALUES (?, ?, ?, 0, ?)
-                    `).run(jId, targetAcc, p.amount, `دریافت ${p.method} بابت فاکتور ${orderNumber}`);
+                    `).run(jId, targetAcc, p.amount, `دریافت ${methodName} بابت فاکتور ${orderNumber}`);
                 }
             }
 
@@ -861,7 +878,13 @@ const posService = {
                     FROM payments p
                     JOIN orders o ON p.order_id = o.id
                     WHERE o.cash_session_id = cs.id AND p.payment_method = 'CARD'
-                ) AS total_card_sales
+                ) AS total_card_sales,
+                (
+                    SELECT COALESCE(SUM(p.amount), 0)
+                    FROM payments p
+                    JOIN orders o ON p.order_id = o.id
+                    WHERE o.cash_session_id = cs.id AND p.payment_method = 'ONLINE'
+                ) AS total_online_sales
             FROM cash_sessions cs
             JOIN cash_registers cr ON cs.cash_register_id = cr.id
             JOIN users u ON cs.employee_id = u.id

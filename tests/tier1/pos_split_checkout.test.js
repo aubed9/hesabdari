@@ -197,4 +197,79 @@ describe('Tier 1: POS Checkout & Split Payments Engine', () => {
         assert.equal(closedSession.actual_balance, 5350000);
         assert.equal(closedSession.variance, -10000);
     });
+
+    test('T1-POS-SPLIT-6: 3-way Split payment (Cash + POS Card + Card-to-Card with tracking reference) balances GL and records tender breakdown', () => {
+        const prod = seedProductWithBatches(db, {
+            name: 'کرم پودر مات ۲۴ ساعته لورآل',
+            sellingPrice: 1000000,
+            batches: [{ batchNumber: 'LOT-FDN-01', expiryDate: '2028-05-20', qty: 5, cost: 550000 }]
+        });
+
+        // 3-way split checkout:
+        // Cash: 300,000 | POS Card: 500,000 | Card-to-Card: 200,000
+        const order = posService.createOrder({
+            employeeId: fixtures.users.cashier.id,
+            cashSessionId: fixtures.cashSessionId,
+            items: [{ variantId: prod.variantId, quantity: 1, unitPrice: 1000000 }],
+            payments: [
+                { method: 'CASH', amount: 300000 },
+                { method: 'CARD', amount: 500000, cardDigits: '7788' },
+                { method: 'CARD_TO_CARD', amount: 200000, ref: 'TR-BANK-998811' }
+            ]
+        });
+
+        assert.ok(order.orderId);
+        assert.equal(order.totalAmount, 1000000);
+
+        // Verify order payment status
+        const ordRow = db.prepare(`SELECT payment_status, status FROM orders WHERE id = ?`).get(order.orderId);
+        assert.equal(ordRow.payment_status, 'PAID');
+        assert.equal(ordRow.status, 'COMPLETED');
+
+        // Verify 3 distinct payment records in payments table
+        const payments = db.prepare(`SELECT * FROM payments WHERE order_id = ? ORDER BY amount ASC`).all(order.orderId);
+        assert.equal(payments.length, 3);
+
+        const transferPayment = payments.find(p => p.amount === 200000);
+        assert.ok(transferPayment);
+        assert.equal(transferPayment.payment_method, 'ONLINE');
+        assert.ok(transferPayment.reference_code.includes('TR-BANK-998811'));
+
+        const cashPayment = payments.find(p => p.amount === 300000);
+        assert.ok(cashPayment);
+        assert.equal(cashPayment.payment_method, 'CASH');
+
+        const cardPayment = payments.find(p => p.amount === 500000);
+        assert.ok(cardPayment);
+        assert.equal(cardPayment.payment_method, 'CARD');
+        assert.equal(cardPayment.card_last_digits, '7788');
+
+        // Verify General Ledger is completely balanced: SUM(debit) == SUM(credit)
+        assertGeneralLedgerBalanced(db);
+
+        // Dr Account 101 (Cash): +300,000
+        assert.equal(getAccountNetBalance(db, '101'), 300000, 'Cash Account 101 must increase by 300,000');
+
+        // Dr Account 102 (Bank): +700,000 (500k card + 200k card-to-card)
+        assert.equal(getAccountNetBalance(db, '102'), 700000, 'Bank Account 102 must increase by 700,000 (Card + Card-to-Card)');
+
+        // Cr Account 401 (Revenue): +1,000,000
+        assert.equal(getAccountNetBalance(db, '401'), 1000000, 'Revenue Account 401 must increase by 1,000,000');
+
+        // Check journal lines Persian descriptions
+        const jLines = db.prepare(`
+            SELECT jl.description, jl.debit, jl.credit 
+            FROM journal_lines jl
+            JOIN journal_entries je ON jl.journal_entry_id = je.id
+            WHERE je.reference_type = 'POS_SALE' AND je.reference_id = ?
+        `).all(order.orderId);
+
+        const hasCashDesc = jLines.some(l => l.description.includes('دریافت نقدی (صندوق)'));
+        const hasCardDesc = jLines.some(l => l.description.includes('دریافت کارتخوان (پوز)'));
+        const hasTransferDesc = jLines.some(l => l.description.includes('دریافت کارت به کارت (انتقال بانکی)'));
+
+        assert.ok(hasCashDesc, 'Must have Persian description for Cash tender');
+        assert.ok(hasCardDesc, 'Must have Persian description for Card tender');
+        assert.ok(hasTransferDesc, 'Must have Persian description for Card-to-Card tender');
+    });
 });

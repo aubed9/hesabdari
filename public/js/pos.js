@@ -641,29 +641,30 @@ const pos = {
                 <!-- Payment Method Tabs -->
                 <div class="space-y-2">
                     <label class="block font-bold text-slate-700">انتخاب روش پرداخت و تسویه:</label>
-                    <div class="grid grid-cols-4 gap-2">
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         <button type="button" onclick="pos.setPaymentMode('POS')" id="pmTab-POS" 
                                 class="p-2.5 rounded-xl border-2 border-purple-600 bg-purple-50 text-purple-900 font-bold flex flex-col items-center gap-1 transition cursor-pointer">
                             <i data-lucide="credit-card" class="w-5 h-5 text-purple-600"></i>
-                            <span>کارتخوان (POS)</span>
+                            <span class="text-xs">کارتخوان (POS)</span>
                         </button>
                         
                         <button type="button" onclick="pos.setPaymentMode('CASH')" id="pmTab-CASH" 
                                 class="p-2.5 rounded-xl border-2 border-slate-200 hover:border-slate-300 text-slate-700 font-bold flex flex-col items-center gap-1 transition cursor-pointer">
                             <i data-lucide="banknote" class="w-5 h-5 text-emerald-600"></i>
-                            <span>نقدی (اسکناس)</span>
+                            <span class="text-xs">نقدی (اسکناس)</span>
                         </button>
 
                         <button type="button" onclick="pos.setPaymentMode('TRANSFER')" id="pmTab-TRANSFER" 
                                 class="p-2.5 rounded-xl border-2 border-slate-200 hover:border-slate-300 text-slate-700 font-bold flex flex-col items-center gap-1 transition cursor-pointer">
                             <i data-lucide="arrow-left-right" class="w-5 h-5 text-blue-600"></i>
-                            <span>کارت به کارت</span>
+                            <span class="text-xs">کارت به کارت</span>
                         </button>
 
                         <button type="button" onclick="pos.setPaymentMode('SPLIT')" id="pmTab-SPLIT" 
-                                class="p-2.5 rounded-xl border-2 border-slate-200 hover:border-slate-300 text-slate-700 font-bold flex flex-col items-center gap-1 transition cursor-pointer">
+                                class="p-2.5 rounded-xl border-2 border-slate-200 hover:border-slate-300 text-slate-700 font-bold flex flex-col items-center gap-0.5 transition cursor-pointer">
                             <i data-lucide="pie-chart" class="w-5 h-5 text-amber-600"></i>
-                            <span>ترکیبی</span>
+                            <span class="text-xs">پرداخت ترکیبی</span>
+                            <span class="text-[9px] text-amber-700 font-normal">نقد + پوز + کارت</span>
                         </button>
                     </div>
                 </div>
@@ -712,35 +713,126 @@ const pos = {
                     </div>
                 </div>
 
-                <!-- Mode 4: SPLIT Container -->
-                <div id="modePanel-SPLIT" class="hidden space-y-2">
-                    <div class="grid grid-cols-3 gap-2">
-                        <div class="p-2.5 border border-purple-200 bg-purple-50/50 rounded-xl space-y-1">
-                            <label class="font-bold text-purple-900 text-[11px]">کارتخوان (POS):</label>
-                            <input type="number" id="splitCard" value="${total}" oninput="pos.checkSplitTotal()" class="w-full p-2 bg-white border border-slate-200 rounded-lg font-bold text-xs font-mono">
+                <!-- Mode 4: SPLIT Container (پرداخت ترکیبی پیشرفته) -->
+                <div id="modePanel-SPLIT" class="hidden space-y-3 p-3.5 bg-slate-50 border border-slate-200 rounded-2xl">
+                    <div class="flex items-center justify-between pb-2 border-b border-slate-200">
+                        <div class="flex items-center gap-1.5 font-bold text-slate-800 text-xs">
+                            <i data-lucide="pie-chart" class="w-4 h-4 text-amber-600"></i>
+                            <span>تعریف و تفکیک پرداخت ترکیبی (نقدی + کارتخوان + کارت به کارت)</span>
+                        </div>
+                        <span class="text-xs text-purple-700 font-bold font-mono">مبلغ کل فاکتور: ${total.toLocaleString('fa-IR')} تومان</span>
+                    </div>
+
+                    <!-- 3 Payment Method Input Cards -->
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        <!-- 1. سهم نقدی (دخل) -->
+                        <div class="p-2.5 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-1.5">
+                            <div class="flex items-center justify-between">
+                                <span class="font-bold text-emerald-900 text-xs flex items-center gap-1">
+                                    <i data-lucide="banknote" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                    <span>۱. سهم نقدی (دخل)</span>
+                                </span>
+                                <button type="button" onclick="pos.fillRemaining('cash')" class="text-[10px] text-emerald-700 hover:text-emerald-900 font-bold underline cursor-pointer" title="تخصیص تمام باقیمانده به نقد">
+                                    + تکمیل مانده
+                                </button>
+                            </div>
+                            <input type="number" id="splitCash" value="0" min="0" oninput="pos.checkSplitTotal()" placeholder="مبلغ نقد..." 
+                                   class="w-full p-2 bg-white border border-emerald-300 rounded-lg font-black text-sm font-mono text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                            <div class="flex justify-between items-center text-[10px] text-emerald-700">
+                                <span id="hint_splitCash" class="font-mono">۰ تومان</span>
+                                <button type="button" onclick="document.getElementById('splitCash').value = 0; pos.checkSplitTotal();" class="text-slate-400 hover:text-rose-500">صفر</button>
+                            </div>
                         </div>
 
-                        <div class="p-2.5 border border-emerald-200 bg-emerald-50/50 rounded-xl space-y-1">
-                            <label class="font-bold text-emerald-900 text-[11px]">نقدی (صندوق):</label>
-                            <input type="number" id="splitCash" value="0" oninput="pos.checkSplitTotal()" class="w-full p-2 bg-white border border-slate-200 rounded-lg font-bold text-xs font-mono">
+                        <!-- 2. سهم کارتخوان (POS) -->
+                        <div class="p-2.5 bg-purple-50/80 border border-purple-200 rounded-xl space-y-1.5">
+                            <div class="flex items-center justify-between">
+                                <span class="font-bold text-purple-900 text-xs flex items-center gap-1">
+                                    <i data-lucide="credit-card" class="w-3.5 h-3.5 text-purple-600"></i>
+                                    <span>۲. سهم کارتخوان (پوز)</span>
+                                </span>
+                                <button type="button" onclick="pos.fillRemaining('card')" class="text-[10px] text-purple-700 hover:text-purple-900 font-bold underline cursor-pointer" title="تخصیص تمام باقیمانده به پوز">
+                                    + تکمیل مانده
+                                </button>
+                            </div>
+                            <input type="number" id="splitCard" value="${total}" min="0" oninput="pos.checkSplitTotal()" placeholder="مبلغ پوز..." 
+                                   class="w-full p-2 bg-white border border-purple-300 rounded-lg font-black text-sm font-mono text-purple-800 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                            <div class="flex justify-between items-center text-[10px] text-purple-700">
+                                <span id="hint_splitCard" class="font-mono">${total.toLocaleString('fa-IR')} تومان</span>
+                                <button type="button" onclick="document.getElementById('splitCard').value = 0; pos.checkSplitTotal();" class="text-slate-400 hover:text-rose-500">صفر</button>
+                            </div>
                         </div>
 
-                        <div class="p-2.5 border border-blue-200 bg-blue-50/50 rounded-xl space-y-1">
-                            <label class="font-bold text-blue-900 text-[11px]">کارت به کارت:</label>
-                            <input type="number" id="splitTransfer" value="0" oninput="pos.checkSplitTotal()" class="w-full p-2 bg-white border border-slate-200 rounded-lg font-bold text-xs font-mono">
+                        <!-- 3. سهم کارت به کارت -->
+                        <div class="p-2.5 bg-blue-50/80 border border-blue-200 rounded-xl space-y-1.5">
+                            <div class="flex items-center justify-between">
+                                <span class="font-bold text-blue-900 text-xs flex items-center gap-1">
+                                    <i data-lucide="arrow-left-right" class="w-3.5 h-3.5 text-blue-600"></i>
+                                    <span>۳. کارت به کارت</span>
+                                </span>
+                                <button type="button" onclick="pos.fillRemaining('transfer')" class="text-[10px] text-blue-700 hover:text-blue-900 font-bold underline cursor-pointer" title="تخصیص تمام باقیمانده به کارت به کارت">
+                                    + تکمیل مانده
+                                </button>
+                            </div>
+                            <input type="number" id="splitTransfer" value="0" min="0" oninput="pos.checkSplitTotal()" placeholder="مبلغ کارت به کارت..." 
+                                   class="w-full p-2 bg-white border border-blue-300 rounded-lg font-black text-sm font-mono text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <div class="flex justify-between items-center text-[10px] text-blue-700">
+                                <span id="hint_splitTransfer" class="font-mono">۰ تومان</span>
+                                <button type="button" onclick="document.getElementById('splitTransfer').value = 0; pos.checkSplitTotal();" class="text-slate-400 hover:text-rose-500">صفر</button>
+                            </div>
                         </div>
                     </div>
 
+                    <!-- Reference info for Card-to-Card -->
+                    <div class="p-2.5 bg-blue-50/50 border border-blue-200 rounded-xl flex flex-col sm:flex-row items-center gap-2">
+                        <label class="font-bold text-blue-950 text-xs whitespace-nowrap flex items-center gap-1">
+                            <i data-lucide="file-text" class="w-3.5 h-3.5 text-blue-600"></i>
+                            <span>مشخصات کارت‌به‌کارت:</span>
+                        </label>
+                        <input type="text" id="splitTransferRef" placeholder="شماره پیگیری، ۴ رقم آخر کارت مشتری یا نام بانک (اختیاری)..." 
+                               class="w-full p-2 bg-white border border-blue-200 rounded-lg text-xs font-mono font-medium focus:outline-none focus:border-blue-500">
+                    </div>
+
                     ${walletAvail > 0 ? `
-                        <div class="p-2.5 border border-indigo-200 bg-indigo-50/50 rounded-xl flex items-center justify-between">
-                            <div>
-                                <span class="font-bold text-indigo-900">کسر از کیف پول مشتری (موجودی: ${Number(walletAvail).toLocaleString('fa-IR')} ت)</span>
+                        <div class="p-2.5 border border-indigo-200 bg-indigo-50/70 rounded-xl flex items-center justify-between gap-3">
+                            <div class="flex items-center gap-1.5">
+                                <i data-lucide="wallet" class="w-4 h-4 text-indigo-600"></i>
+                                <div>
+                                    <span class="font-bold text-indigo-900 text-xs">کسر از کیف پول مشتری</span>
+                                    <span class="text-[10px] text-indigo-600 block">مانده اعتبار مشتری: ${Number(walletAvail).toLocaleString('fa-IR')} تومان</span>
+                                </div>
                             </div>
-                            <input type="number" id="splitWallet" value="0" max="${Math.min(walletAvail, total)}" oninput="pos.checkSplitTotal()" class="w-32 p-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs font-mono">
+                            <div class="flex items-center gap-1.5">
+                                <input type="number" id="splitWallet" value="0" min="0" max="${Math.min(walletAvail, total)}" oninput="pos.checkSplitTotal()" 
+                                       class="w-28 p-1.5 bg-white border border-indigo-300 rounded-lg font-bold text-xs font-mono text-indigo-800 text-center">
+                                <button type="button" onclick="pos.fillRemaining('wallet')" class="text-[10px] bg-indigo-100 hover:bg-indigo-200 text-indigo-800 px-2 py-1 rounded font-bold">
+                                    تکمیل با کیف پول
+                                </button>
+                            </div>
                         </div>
                     ` : ''}
 
-                    <div id="splitStatus" class="p-2 bg-emerald-50 text-emerald-800 rounded-lg text-center font-bold text-[11px]">
+                    <!-- Quick Split Presets -->
+                    <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-200/60">
+                        <div class="flex items-center gap-1 text-[11px] text-slate-500 font-bold">
+                            <span>الگوهای آماده:</span>
+                            <button type="button" onclick="pos.splitPreset('half_cash_card')" class="px-2 py-1 bg-white hover:bg-slate-200 border border-slate-200 rounded-lg text-slate-700 text-[10px] font-bold">
+                                ۵۰٪ نقد + ۵۰٪ پوز
+                            </button>
+                            <button type="button" onclick="pos.splitPreset('half_card_transfer')" class="px-2 py-1 bg-white hover:bg-slate-200 border border-slate-200 rounded-lg text-slate-700 text-[10px] font-bold">
+                                ۵۰٪ پوز + ۵۰٪ کارت‌به‌کارت
+                            </button>
+                            <button type="button" onclick="pos.splitPreset('third_equal')" class="px-2 py-1 bg-white hover:bg-slate-200 border border-slate-200 rounded-lg text-slate-700 text-[10px] font-bold">
+                                یک‌سوم مساوی هر سه
+                            </button>
+                        </div>
+                        <button type="button" onclick="pos.resetSplitAmounts()" class="text-[11px] text-rose-600 hover:underline font-bold">
+                            پاکسازی همه مبالغ
+                        </button>
+                    </div>
+
+                    <!-- Live Reconciliation Status Box -->
+                    <div id="splitStatus" class="p-2.5 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-xl text-center font-bold text-xs shadow-xs transition">
                         ✅ مبالغ تقسیمی کاملاً با کل فاکتور تراز است.
                     </div>
                 </div>
@@ -770,6 +862,9 @@ const pos = {
             if (m === mode) {
                 if (tab) tab.className = 'p-2.5 rounded-xl border-2 border-purple-600 bg-purple-50 text-purple-900 font-bold flex flex-col items-center gap-1 transition cursor-pointer';
                 panel?.classList.remove('hidden');
+                if (m === 'SPLIT') {
+                    this.checkSplitTotal();
+                }
             } else {
                 if (tab) tab.className = 'p-2.5 rounded-xl border-2 border-slate-200 hover:border-slate-300 text-slate-700 font-bold flex flex-col items-center gap-1 transition cursor-pointer';
                 panel?.classList.add('hidden');
@@ -785,28 +880,111 @@ const pos = {
         if (el) el.innerText = `${change.toLocaleString('fa-IR')} تومان`;
     },
 
+    fillRemaining(target) {
+        const total = this.checkoutState?.total || 0;
+        const c = Number(document.getElementById('splitCard')?.value) || 0;
+        const ca = Number(document.getElementById('splitCash')?.value) || 0;
+        const t = Number(document.getElementById('splitTransfer')?.value) || 0;
+        const w = Number(document.getElementById('splitWallet')?.value) || 0;
+
+        if (target === 'cash') {
+            const others = c + t + w;
+            const rem = Math.max(0, total - others);
+            const el = document.getElementById('splitCash');
+            if (el) el.value = rem;
+        } else if (target === 'card') {
+            const others = ca + t + w;
+            const rem = Math.max(0, total - others);
+            const el = document.getElementById('splitCard');
+            if (el) el.value = rem;
+        } else if (target === 'transfer') {
+            const others = ca + c + w;
+            const rem = Math.max(0, total - others);
+            const el = document.getElementById('splitTransfer');
+            if (el) el.value = rem;
+        } else if (target === 'wallet') {
+            const walletAvail = this.selectedCustomer?.wallet_balance || 0;
+            const others = ca + c + t;
+            const rem = Math.min(walletAvail, Math.max(0, total - others));
+            const el = document.getElementById('splitWallet');
+            if (el) el.value = rem;
+        }
+
+        this.checkSplitTotal();
+    },
+
+    splitPreset(type) {
+        const total = this.checkoutState?.total || 0;
+        const elCash = document.getElementById('splitCash');
+        const elCard = document.getElementById('splitCard');
+        const elTransfer = document.getElementById('splitTransfer');
+        const elWallet = document.getElementById('splitWallet');
+        if (elWallet) elWallet.value = 0;
+
+        if (type === 'half_cash_card') {
+            const half = Math.floor(total / 2);
+            if (elCash) elCash.value = half;
+            if (elCard) elCard.value = total - half;
+            if (elTransfer) elTransfer.value = 0;
+        } else if (type === 'half_card_transfer') {
+            const half = Math.floor(total / 2);
+            if (elCash) elCash.value = 0;
+            if (elCard) elCard.value = half;
+            if (elTransfer) elTransfer.value = total - half;
+        } else if (type === 'third_equal') {
+            const third = Math.floor(total / 3);
+            if (elCash) elCash.value = third;
+            if (elCard) elCard.value = third;
+            if (elTransfer) elTransfer.value = total - (third * 2);
+        }
+        this.checkSplitTotal();
+    },
+
+    resetSplitAmounts() {
+        const elCash = document.getElementById('splitCash');
+        const elCard = document.getElementById('splitCard');
+        const elTransfer = document.getElementById('splitTransfer');
+        const elWallet = document.getElementById('splitWallet');
+        if (elCash) elCash.value = 0;
+        if (elCard) elCard.value = 0;
+        if (elTransfer) elTransfer.value = 0;
+        if (elWallet) elWallet.value = 0;
+        this.checkSplitTotal();
+    },
+
     checkSplitTotal() {
         const total = this.checkoutState?.total || 0;
         const c = Number(document.getElementById('splitCard')?.value) || 0;
         const ca = Number(document.getElementById('splitCash')?.value) || 0;
         const t = Number(document.getElementById('splitTransfer')?.value) || 0;
         const w = Number(document.getElementById('splitWallet')?.value) || 0;
+
+        // Update hints
+        const hintCard = document.getElementById('hint_splitCard');
+        if (hintCard) hintCard.textContent = c.toLocaleString('fa-IR') + ' تومان';
+        const hintCash = document.getElementById('hint_splitCash');
+        if (hintCash) hintCash.textContent = ca.toLocaleString('fa-IR') + ' تومان';
+        const hintTransfer = document.getElementById('hint_splitTransfer');
+        if (hintTransfer) hintTransfer.textContent = t.toLocaleString('fa-IR') + ' تومان';
+
         const sum = c + ca + t + w;
         const diff = sum - total;
 
         const el = document.getElementById('splitStatus');
         if (!el) return;
-        if (diff === 0) {
-            el.className = 'p-2 bg-emerald-50 text-emerald-800 rounded-lg text-center font-bold text-[11px]';
-            el.innerText = '✅ مبالغ تقسیمی کاملاً با کل فاکتور تراز است.';
+        if (Math.abs(diff) <= 0.5) {
+            el.className = 'p-2.5 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-xl text-center font-bold text-xs shadow-xs';
+            el.innerHTML = `✅ مجموع مبالغ ترکیبی (${sum.toLocaleString('fa-IR')} تومان) کاملاً با فاکتور تراز است. آماده ثبت فاکتور.`;
         } else if (diff > 0) {
-            el.className = 'p-2 bg-amber-50 text-amber-800 rounded-lg text-center font-bold text-[11px]';
-            el.innerText = `⚠️ مبلغ ${diff.toLocaleString('fa-IR')} تومان بیشتر از فاکتور وارد شده است.`;
+            el.className = 'p-2.5 bg-rose-50 border border-rose-300 text-rose-800 rounded-xl text-center font-bold text-xs shadow-xs';
+            el.innerHTML = `❌ مبلغ ${diff.toLocaleString('fa-IR')} تومان اضافه بر مبلغ فاکتور وارد شده است! (مجموع پرداختی: ${sum.toLocaleString('fa-IR')} ت)`;
         } else {
-            el.className = 'p-2 bg-rose-50 text-rose-800 rounded-lg text-center font-bold text-[11px]';
-            el.innerText = `⚠️ مبلغ ${Math.abs(diff).toLocaleString('fa-IR')} تومان باقی مانده است.`;
+            const rem = Math.abs(diff);
+            el.className = 'p-2.5 bg-amber-50 border border-amber-300 text-amber-800 rounded-xl text-center font-bold text-xs shadow-xs';
+            el.innerHTML = `⚠️ مبلغ ${rem.toLocaleString('fa-IR')} تومان هنوز تسویه نشده است (مجموع تا الان: ${sum.toLocaleString('fa-IR')} ت). روی «تکمیل مانده» بزنید.`;
         }
     },
+
 
     async submitCheckout() {
         const subtotal = this.cart.reduce((sum, i) => sum + (i.unitPrice * i.quantity), 0);
@@ -826,6 +1004,7 @@ const pos = {
             const payCard = Number(document.getElementById('splitCard')?.value) || 0;
             const payCash = Number(document.getElementById('splitCash')?.value) || 0;
             const payTransfer = Number(document.getElementById('splitTransfer')?.value) || 0;
+            const transferRef = document.getElementById('splitTransferRef')?.value.trim();
             const payWallet = Number(document.getElementById('splitWallet')?.value) || 0;
             const sum = payCard + payCash + payTransfer + payWallet;
 
@@ -836,7 +1015,7 @@ const pos = {
 
             if (payCard > 0) payments.push({ method: 'CARD', amount: payCard });
             if (payCash > 0) payments.push({ method: 'CASH', amount: payCash });
-            if (payTransfer > 0) payments.push({ method: 'CARD_TO_CARD', amount: payTransfer, ref: 'کارت به کارت' });
+            if (payTransfer > 0) payments.push({ method: 'CARD_TO_CARD', amount: payTransfer, ref: transferRef || 'کارت به کارت' });
             if (payWallet > 0) payments.push({ method: 'WALLET', amount: payWallet });
         }
 
@@ -930,7 +1109,27 @@ const pos = {
                         <span>مبلغ نهایی:</span>
                         <span>${Number(o.total_amount).toLocaleString('fa-IR')} تومان</span>
                     </div>
+
+                    ${(o.payments && o.payments.length > 0) ? `
+                        <div style="margin-top: 6px; padding-top: 4px; border-top: 1px dotted #ccc; font-size: 10px;">
+                            <div style="font-weight: bold; margin-bottom: 3px; color: #333;">نحوه تسویه (روش‌های پرداخت):</div>
+                            ${o.payments.map(p => `
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                                    <span>
+                                        ${p.payment_method === 'CASH' ? '💵 نقدی' :
+                                          p.payment_method === 'CARD' ? '💳 کارتخوان (پوز)' :
+                                          p.payment_method === 'ONLINE' ? '📲 کارت به کارت' :
+                                          p.payment_method === 'WALLET' ? '👛 کیف پول' :
+                                          p.payment_method === 'POINTS' ? '⭐ امتیاز' : p.payment_method}
+                                        ${p.reference_code ? `<span style="font-size: 8px; color: #555;">[${p.reference_code}]</span>` : ''}
+                                    </span>
+                                    <span style="font-weight: bold;">${Number(p.amount).toLocaleString('fa-IR')} تومان</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
                 </div>
+
 
                 <div style="text-align: center; font-size: 9px; margin-top: 12px; border-top: 1px solid #eee; padding-top: 6px;">
                     از خرید شما سپاسگزاریم!<br>

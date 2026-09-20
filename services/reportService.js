@@ -38,6 +38,7 @@ const reportService = {
 
         let cashCollected = 0;
         let cardTotal = 0;
+        let onlineTotal = 0;
         let walletTotal = 0;
         let terminalSaman = { count: 0, amount: 0 };
         let terminalMellat = { count: 0, amount: 0 };
@@ -47,6 +48,8 @@ const reportService = {
                 cashCollected = row.total_amount;
             } else if (row.payment_method === 'WALLET') {
                 walletTotal = row.total_amount;
+            } else if (row.payment_method === 'ONLINE') {
+                onlineTotal = row.total_amount;
             } else if (row.payment_method === 'CARD') {
                 cardTotal = row.total_amount;
                 // Split between POS Terminals (Saman: 55%, Mellat: 45% simulation)
@@ -126,6 +129,7 @@ const reportService = {
             paymentBreakdown: {
                 cash: cashCollected,
                 cardTotal: cardTotal,
+                cardToCard: onlineTotal,
                 terminalSaman: terminalSaman,
                 terminalMellat: terminalMellat,
                 wallet: walletTotal
