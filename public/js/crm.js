@@ -210,13 +210,6 @@ const crm = {
 
         this.renderCustomerTable();
     },
-                </table>
-            `;
-            lucide.createIcons();
-        } catch (e) {
-            container.innerHTML = '<div class="p-6 text-center text-rose-500">خطا در دریافت لیست مشتریان</div>';
-        }
-    },
 
     // Customer 360 Modal
     async openProfile360(customerId) {

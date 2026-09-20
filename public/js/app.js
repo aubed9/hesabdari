@@ -1,14 +1,157 @@
 // Main Application Controller & Router
 const app = {
     currentSection: 'dashboard',
+    currentUser: null,
 
     init() {
         this.bindNav();
         this.bindModals();
         this.updatePersianDate();
         this.updateAlertCount();
-        const hash = window.location.hash.replace('#', '') || 'dashboard';
+
+        // Check login state from localStorage
+        const savedUser = localStorage.getItem('currentUser');
+        if (savedUser) {
+            try {
+                this.currentUser = JSON.parse(savedUser);
+            } catch (e) {
+                this.currentUser = null;
+            }
+        }
+
+        if (!this.currentUser) {
+            this.showLoginModal();
+            return;
+        }
+
+        this.applyUserPermissions();
+        let hash = window.location.hash.replace('#', '') || (this.currentUser.role === 'ADMIN' ? 'pos' : 'dashboard');
+        if (this.currentUser.role === 'ADMIN' && hash !== 'pos' && hash !== 'crm' && hash !== 'alerts') {
+            hash = 'pos';
+        }
         this.showSection(hash);
+    },
+
+    showLoginModal() {
+        const overlay = document.getElementById('loginOverlay');
+        if (overlay) {
+            overlay.classList.remove('hidden');
+            const errEl = document.getElementById('loginErrorMessage');
+            if (errEl) errEl.classList.add('hidden');
+            lucide.createIcons();
+        }
+    },
+
+    hideLoginModal() {
+        const overlay = document.getElementById('loginOverlay');
+        if (overlay) {
+            overlay.classList.add('hidden');
+        }
+    },
+
+    async quickLogin(role) {
+        if (role === 'manager') {
+            await this.login('manager', '123456');
+        } else {
+            await this.login('admin', '123456');
+        }
+    },
+
+    async handleLoginForm(e) {
+        e.preventDefault();
+        const username = document.getElementById('loginUsernameInput')?.value;
+        const password = document.getElementById('loginPasswordInput')?.value;
+        await this.login(username, password);
+    },
+
+    async login(username, password) {
+        const btn = document.getElementById('loginSubmitBtn');
+        const errEl = document.getElementById('loginErrorMessage');
+        if (errEl) errEl.classList.add('hidden');
+        if (btn) btn.disabled = true;
+
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const json = await res.json();
+            if (!json.success) {
+                throw new Error(json.error || 'نام کاربری یا رمز عبور اشتباه است');
+            }
+
+            this.currentUser = json.user;
+            localStorage.setItem('currentUser', JSON.stringify(json.user));
+
+            this.hideLoginModal();
+            this.applyUserPermissions();
+
+            const targetSection = (this.currentUser.role === 'ADMIN') ? 'pos' : 'dashboard';
+            this.showSection(targetSection);
+        } catch (err) {
+            if (errEl) {
+                errEl.innerText = err.message;
+                errEl.classList.remove('hidden');
+            } else {
+                alert(err.message);
+            }
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    },
+
+    logout() {
+        localStorage.removeItem('currentUser');
+        this.currentUser = null;
+        this.showLoginModal();
+    },
+
+    applyUserPermissions() {
+        if (!this.currentUser) return;
+
+        const role = this.currentUser.role;
+        const isManager = (role === 'MANAGER');
+
+        // Update header user badge
+        const nameEl = document.getElementById('headerUserName');
+        const roleEl = document.getElementById('headerUserRole');
+        const avatarEl = document.getElementById('headerUserAvatar');
+        const btnSimulate = document.getElementById('headerBtnSimulate');
+        const btnReports = document.getElementById('headerBtnReports');
+
+        if (nameEl) nameEl.innerText = this.currentUser.fullName || (isManager ? 'مدیر ارشد فروشگاه' : 'ادمین فروش و صندوق');
+        if (roleEl) roleEl.innerText = isManager ? 'مدیر کل (دسترسی نامحدود)' : 'ادمین فروش (صندوق و CRM)';
+        if (avatarEl) avatarEl.innerText = isManager ? 'مد' : 'اد';
+
+        // Toggle Quick Header Buttons
+        if (btnSimulate) btnSimulate.style.display = isManager ? 'flex' : 'none';
+        if (btnReports) btnReports.style.display = isManager ? 'flex' : 'none';
+
+        // Sidebar Navigation Visibility
+        const sectionsConfig = {
+            'dashboard': isManager,
+            'pos': true,
+            'products': isManager,
+            'inventory': isManager,
+            'purchasing': isManager,
+            'omnichannel': isManager,
+            'crm': true,
+            'marketing': isManager,
+            'accounting': isManager,
+            'reports': isManager,
+            'bi': isManager,
+            'audit': isManager,
+            'alerts': true,
+            'ai': isManager
+        };
+
+        for (const [sec, allowed] of Object.entries(sectionsConfig)) {
+            const navEl = document.getElementById(`nav-${sec}`);
+            if (navEl) {
+                navEl.style.display = allowed ? 'flex' : 'none';
+            }
+        }
     },
 
     updatePersianDate() {
@@ -73,6 +216,17 @@ const app = {
     },
 
     showSection(name) {
+        if (!this.currentUser) {
+            this.showLoginModal();
+            return;
+        }
+
+        // Access control check for ADMIN
+        if (this.currentUser.role === 'ADMIN' && name !== 'pos' && name !== 'crm' && name !== 'alerts') {
+            alert('⚠️ دسترسی محدود: حساب کاربری ادمین فقط به بخش‌های «صندوق فروش POS» و «CRM و باشگاه مشتریان» دسترسی دارد.');
+            name = 'pos';
+        }
+
         this.currentSection = name;
         window.location.hash = name;
 
