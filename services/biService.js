@@ -46,7 +46,17 @@ const biService = {
             SELECT 
                 COUNT(id) AS invoices_count,
                 COALESCE(SUM(total_amount), 0) AS sales,
-                COALESCE(SUM(total_cost), 0) AS cogs,
+                COALESCE(SUM(
+                    CASE 
+                        WHEN total_cost > 0 THEN total_cost 
+                        ELSE COALESCE((
+                            SELECT SUM(oi.quantity * COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0))
+                            FROM order_items oi
+                            LEFT JOIN product_variants pv ON oi.product_variant_id = pv.id
+                            WHERE oi.order_id = orders.id
+                        ), 0)
+                    END
+                ), 0) AS cogs,
                 COALESCE(AVG(total_amount), 0) AS aov
             FROM orders
             WHERE status = 'COMPLETED' AND ${dateCondition}
@@ -58,7 +68,17 @@ const biService = {
             SELECT 
                 COUNT(id) AS invoices_count,
                 COALESCE(SUM(total_amount), 0) AS sales_today,
-                COALESCE(SUM(total_cost), 0) AS cogs_today,
+                COALESCE(SUM(
+                    CASE 
+                        WHEN total_cost > 0 THEN total_cost 
+                        ELSE COALESCE((
+                            SELECT SUM(oi.quantity * COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0))
+                            FROM order_items oi
+                            LEFT JOIN product_variants pv ON oi.product_variant_id = pv.id
+                            WHERE oi.order_id = orders.id
+                        ), 0)
+                    END
+                ), 0) AS cogs_today,
                 COALESCE(AVG(total_amount), 0) AS aov_today
             FROM orders
             WHERE status = 'COMPLETED' AND DATE(created_at) = DATE('now')
@@ -70,7 +90,17 @@ const biService = {
             SELECT 
                 COUNT(id) AS invoices_count,
                 COALESCE(SUM(total_amount), 0) AS sales_month,
-                COALESCE(SUM(total_cost), 0) AS cogs_month,
+                COALESCE(SUM(
+                    CASE 
+                        WHEN total_cost > 0 THEN total_cost 
+                        ELSE COALESCE((
+                            SELECT SUM(oi.quantity * COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0))
+                            FROM order_items oi
+                            LEFT JOIN product_variants pv ON oi.product_variant_id = pv.id
+                            WHERE oi.order_id = orders.id
+                        ), 0)
+                    END
+                ), 0) AS cogs_month,
                 COALESCE(AVG(total_amount), 0) AS aov_month
             FROM orders
             WHERE status = 'COMPLETED' AND STRFTIME('%Y-%m', created_at) = STRFTIME('%Y-%m', 'now')
@@ -224,8 +254,27 @@ const biService = {
                 o.subtotal,
                 o.discount_amount,
                 o.total_amount,
-                o.total_cost,
-                (o.total_amount - o.total_cost) AS gross_profit,
+                CASE 
+                    WHEN o.total_cost > 0 THEN o.total_cost 
+                    ELSE COALESCE((
+                        SELECT SUM(oi.quantity * COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0))
+                        FROM order_items oi
+                        LEFT JOIN product_variants pv ON oi.product_variant_id = pv.id
+                        WHERE oi.order_id = o.id
+                    ), 0)
+                END AS total_cost,
+                (
+                    o.total_amount - 
+                    CASE 
+                        WHEN o.total_cost > 0 THEN o.total_cost 
+                        ELSE COALESCE((
+                            SELECT SUM(oi.quantity * COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0))
+                            FROM order_items oi
+                            LEFT JOIN product_variants pv ON oi.product_variant_id = pv.id
+                            WHERE oi.order_id = o.id
+                        ), 0)
+                    END
+                ) AS gross_profit,
                 (
                     SELECT GROUP_CONCAT(DISTINCT p.payment_method)
                     FROM payments p
@@ -391,10 +440,56 @@ const biService = {
         return db.prepare(`
             SELECT 
                 DATE(created_at) AS sale_date,
+                DATE(created_at) AS date,
                 COUNT(id) AS orders_count,
                 COALESCE(SUM(total_amount), 0) AS total_sales,
-                COALESCE(SUM(total_cost), 0) AS total_cogs,
-                COALESCE(SUM(total_amount - total_cost), 0) AS gross_profit
+                COALESCE(SUM(total_amount), 0) AS sales,
+                COALESCE(SUM(
+                    CASE 
+                        WHEN total_cost > 0 THEN total_cost 
+                        ELSE COALESCE((
+                            SELECT SUM(oi.quantity * COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0))
+                            FROM order_items oi
+                            LEFT JOIN product_variants pv ON oi.product_variant_id = pv.id
+                            WHERE oi.order_id = orders.id
+                        ), 0)
+                    END
+                ), 0) AS total_cogs,
+                COALESCE(SUM(
+                    CASE 
+                        WHEN total_cost > 0 THEN total_cost 
+                        ELSE COALESCE((
+                            SELECT SUM(oi.quantity * COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0))
+                            FROM order_items oi
+                            LEFT JOIN product_variants pv ON oi.product_variant_id = pv.id
+                            WHERE oi.order_id = orders.id
+                        ), 0)
+                    END
+                ), 0) AS cogs,
+                COALESCE(SUM(
+                    total_amount - 
+                    CASE 
+                        WHEN total_cost > 0 THEN total_cost 
+                        ELSE COALESCE((
+                            SELECT SUM(oi.quantity * COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0))
+                            FROM order_items oi
+                            LEFT JOIN product_variants pv ON oi.product_variant_id = pv.id
+                            WHERE oi.order_id = orders.id
+                        ), 0)
+                    END
+                ), 0) AS gross_profit,
+                COALESCE(SUM(
+                    total_amount - 
+                    CASE 
+                        WHEN total_cost > 0 THEN total_cost 
+                        ELSE COALESCE((
+                            SELECT SUM(oi.quantity * COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0))
+                            FROM order_items oi
+                            LEFT JOIN product_variants pv ON oi.product_variant_id = pv.id
+                            WHERE oi.order_id = orders.id
+                        ), 0)
+                    END
+                ), 0) AS grossProfit
             FROM orders
             WHERE status = 'COMPLETED'
             GROUP BY DATE(created_at)
@@ -438,7 +533,7 @@ const biService = {
                 pv.shade,
                 COALESCE(SUM(oi.quantity), 0) AS units_sold,
                 COALESCE(SUM(oi.total_price), 0) AS total_revenue,
-                COALESCE(SUM(oi.total_price - (oi.quantity * oi.unit_cost)), 0) AS total_profit
+                COALESCE(SUM(oi.total_price - (oi.quantity * COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0))), 0) AS total_profit
             FROM product_variants pv
             JOIN products p ON pv.product_id = p.id
             JOIN brands b ON p.brand_id = b.id
@@ -477,11 +572,11 @@ const biService = {
                 COUNT(DISTINCT p.id) AS products_count,
                 COALESCE(SUM(oi.quantity), 0) AS units_sold,
                 COALESCE(SUM(oi.total_price), 0) AS total_sales,
-                COALESCE(SUM(oi.quantity * oi.unit_cost), 0) AS total_cogs,
-                COALESCE(SUM(oi.total_price - (oi.quantity * oi.unit_cost)), 0) AS gross_profit,
+                COALESCE(SUM(oi.quantity * COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0)), 0) AS total_cogs,
+                COALESCE(SUM(oi.total_price - (oi.quantity * COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0))), 0) AS gross_profit,
                 CASE 
                     WHEN SUM(oi.total_price) > 0 THEN 
-                        ROUND((SUM(oi.total_price - (oi.quantity * oi.unit_cost)) / SUM(oi.total_price)) * 100, 1)
+                        ROUND((SUM(oi.total_price - (oi.quantity * COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0))) / SUM(oi.total_price)) * 100, 1)
                     ELSE 0 
                 END AS margin_percent
             FROM brands b
@@ -499,7 +594,7 @@ const biService = {
         const brands = db.prepare(`
             SELECT 
                 b.name AS brand_name,
-                COALESCE(SUM(oi.total_price - (oi.quantity * oi.unit_cost)), 0) AS total_profit,
+                COALESCE(SUM(oi.total_price - (oi.quantity * COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0))), 0) AS total_profit,
                 COALESCE(SUM(ib.quantity * ib.purchase_price), 0) AS inventory_investment
             FROM brands b
             LEFT JOIN products p ON b.id = p.brand_id
@@ -692,7 +787,7 @@ const biService = {
                 COUNT(oi.id) AS sales_frequency,
                 COALESCE(SUM(oi.quantity), 0) AS units_sold,
                 COALESCE(SUM(oi.total_price), 0) AS total_revenue,
-                COALESCE(SUM(oi.quantity * oi.unit_cost), 0) AS total_cogs
+                COALESCE(SUM(oi.quantity * COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0)), 0) AS total_cogs
             FROM products p
             JOIN brands b ON p.brand_id = b.id
             JOIN categories c ON p.category_id = c.id

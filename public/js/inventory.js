@@ -837,5 +837,33 @@ const inventory = {
         } catch (e) {
             app.showNotification('خطا در نهایی‌سازی انبارگردانی', 'error');
         }
+    },
+
+    async editTester(testerId, currentPercentage) {
+        const newPctStr = prompt(`درصد باقیمانده جدید تستر را وارد کنید (۰ تا ۱۰۰):`, currentPercentage);
+        if (newPctStr === null) return;
+        const newPct = parseInt(newPctStr, 10);
+        if (isNaN(newPct) || newPct < 0 || newPct > 100) {
+            alert('لطفاً عددی معتبر بین ۰ تا ۱۰۰ وارد کنید.');
+            return;
+        }
+        const status = newPct === 0 ? 'FINISHED' : 'ACTIVE';
+        try {
+            const res = await fetch(`/api/inventory/testers/${testerId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ remainingPercentage: newPct, status })
+            });
+            const json = await res.json();
+            if (json.success) {
+                app.showNotification('وضعیت تستر با موفقیت به‌روزرسانی شد.', 'success');
+                const container = document.getElementById('inventoryContent');
+                if (container) this.renderTestersView(container);
+            } else {
+                app.showNotification(json.error || 'خطا در به‌روزرسانی تستر', 'error');
+            }
+        } catch (e) {
+            app.showNotification('خطا در ارتباط با سرور: ' + e.message, 'error');
+        }
     }
 };

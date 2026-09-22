@@ -4,8 +4,29 @@ const { normalizeIranianMobile, formatMobileForExcel, formatMobileWithoutZero, v
 const { toJalaliDateString, toJalaliFriendly, getCurrentJalaliDate, parseJalaliInputToGregorian, getJalaliMonthName, PERSIAN_MONTH_NAMES } = require('../utils/dateUtils');
 
 const crmService = {
-    // Get all customers with RFM and summary metrics
-    getCustomers() {
+    // Get all customers with RFM and summary metrics, with optional Persian search normalization (NORM_FA)
+    getCustomers(search = null) {
+        if (search && search.trim()) {
+            const cleanSearch = search.trim();
+            return db.prepare(`
+                SELECT 
+                    c.*,
+                    COUNT(o.id) AS total_orders_count,
+                    COALESCE(SUM(o.total_amount), 0) AS total_spent,
+                    COALESCE(AVG(o.total_amount), 0) AS average_order_value,
+                    MAX(o.created_at) AS last_order_date,
+                    CAST((julianday('now') - julianday(MAX(o.created_at))) AS INTEGER) AS days_since_last_order
+                FROM customers c
+                LEFT JOIN orders o ON c.id = o.customer_id AND o.status = 'COMPLETED'
+                WHERE c.is_active = 1
+                  AND (NORM_FA(c.full_name) LIKE '%' || NORM_FA(?) || '%' 
+                       OR c.mobile LIKE '%' || ? || '%' 
+                       OR c.referral_code LIKE '%' || ? || '%')
+                GROUP BY c.id
+                ORDER BY total_spent DESC
+            `).all(cleanSearch, cleanSearch, cleanSearch);
+        }
+
         return db.prepare(`
             SELECT 
                 c.*,

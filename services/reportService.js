@@ -15,7 +15,17 @@ const reportService = {
                 COALESCE(SUM(discount_amount), 0) AS total_discounts,
                 COALESCE(SUM(tax_amount), 0) AS total_tax,
                 COALESCE(SUM(total_amount), 0) AS net_sales,
-                COALESCE(SUM(total_cost), 0) AS total_cogs,
+                COALESCE(SUM(
+                    CASE 
+                        WHEN total_cost > 0 THEN total_cost 
+                        ELSE COALESCE((
+                            SELECT SUM(oi.quantity * COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0))
+                            FROM order_items oi
+                            LEFT JOIN product_variants pv ON oi.product_variant_id = pv.id
+                            WHERE oi.order_id = orders.id
+                        ), 0)
+                    END
+                ), 0) AS total_cogs,
                 COALESCE(AVG(total_amount), 0) AS average_order_value
             FROM orders
             WHERE status = 'COMPLETED' AND DATE(created_at) = ?
@@ -163,7 +173,7 @@ const reportService = {
                 c.name_fa AS category_name,
                 COUNT(oi.id) AS total_units_sold,
                 COALESCE(SUM(oi.total_price), 0) AS gross_revenue,
-                COALESCE(SUM(oi.unit_cost * oi.quantity), 0) AS total_cogs
+                COALESCE(SUM(COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0) * oi.quantity), 0) AS total_cogs
             FROM categories c
             JOIN products p ON c.id = p.category_id
             JOIN product_variants pv ON p.id = pv.product_id
@@ -204,7 +214,7 @@ const reportService = {
                 COUNT(DISTINCT p.id) AS total_products,
                 COUNT(oi.id) AS units_sold,
                 COALESCE(SUM(oi.total_price), 0) AS gross_sales,
-                COALESCE(SUM(oi.unit_cost * oi.quantity), 0) AS total_cogs
+                COALESCE(SUM(COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0) * oi.quantity), 0) AS total_cogs
             FROM brands b
             JOIN products p ON b.id = p.brand_id
             JOIN product_variants pv ON p.id = pv.product_id

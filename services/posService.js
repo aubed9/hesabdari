@@ -159,7 +159,7 @@ const posService = {
                     if (!item.quantity || item.quantity <= 0) {
                         throw new Error('تعداد کالا در سفارش بیعانه باید بزرگتر از صفر باشد.');
                     }
-                    const variant = db.prepare(`SELECT selling_price FROM product_variants WHERE id = ?`).get(item.variantId);
+                    const variant = db.prepare(`SELECT id, selling_price, purchase_price FROM product_variants WHERE id = ?`).get(item.variantId);
                     if (!variant) throw new Error(`محصول با شناسه ${item.variantId} یافت نشد.`);
                     const unitPrice = (item.unitPrice !== undefined && item.allowPriceOverride) ? item.unitPrice : (variant.selling_price || item.unitPrice || 0);
 
@@ -181,17 +181,21 @@ const posService = {
                         // Mark as reserved in batch
                         db.prepare(`UPDATE inventory_batches SET reserved_quantity = reserved_quantity + ? WHERE id = ?`).run(takeQty, b.id);
 
+                        const unitCost = (b.purchase_price !== null && b.purchase_price !== undefined && b.purchase_price > 0)
+                            ? b.purchase_price
+                            : (variant.purchase_price || 0);
+
                         allocatedItems.push({
                             variantId: item.variantId,
                             batchId: b.id,
                             quantity: takeQty,
                             unitPrice: unitPrice,
-                            unitCost: b.purchase_price,
+                            unitCost: unitCost,
                             totalPrice: roundMoney(unitPrice * takeQty)
                         });
 
                         subtotal += roundMoney(unitPrice * takeQty);
-                        totalCogs += roundMoney(b.purchase_price * takeQty);
+                        totalCogs += roundMoney(unitCost * takeQty);
                         remainingToFulfill -= takeQty;
                     }
                 }
@@ -259,7 +263,7 @@ const posService = {
                 if (!item.quantity || item.quantity <= 0) {
                     throw new Error('تعداد کالا باید بزرگتر از صفر باشد.');
                 }
-                const variant = db.prepare(`SELECT selling_price FROM product_variants WHERE id = ?`).get(item.variantId);
+                const variant = db.prepare(`SELECT id, selling_price, purchase_price FROM product_variants WHERE id = ?`).get(item.variantId);
                 if (!variant) throw new Error(`محصول با شناسه ${item.variantId} یافت نشد.`);
                 const unitPrice = (item.unitPrice !== undefined && item.allowPriceOverride) ? item.unitPrice : (variant.selling_price || item.unitPrice || 0);
 
@@ -288,18 +292,22 @@ const posService = {
                     // Deduct batch quantity
                     db.prepare(`UPDATE inventory_batches SET quantity = quantity - ? WHERE id = ?`).run(takeQty, b.id);
 
+                    const unitCost = (b.purchase_price !== null && b.purchase_price !== undefined && b.purchase_price > 0)
+                        ? b.purchase_price
+                        : (variant.purchase_price || 0);
+
                     // Track allocation
                     allocatedItems.push({
                         variantId: item.variantId,
                         batchId: b.id,
                         quantity: takeQty,
                         unitPrice: unitPrice,
-                        unitCost: b.purchase_price,
+                        unitCost: unitCost,
                         totalPrice: roundMoney(unitPrice * takeQty)
                     });
 
                     subtotal += roundMoney(unitPrice * takeQty);
-                    totalCogs += roundMoney(b.purchase_price * takeQty);
+                    totalCogs += roundMoney(unitCost * takeQty);
                     remainingToFulfill -= takeQty;
                 }
             }

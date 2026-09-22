@@ -177,3 +177,90 @@ Integrity mode: development
 - [ ] Deterministic 90-day simulation completes 90 business days with zero unexpected errors and passes all daily invariant checks.
 - [ ] Restart persistence and backup/restore snapshot drills successfully reproduce verified business state.
 - [ ] `docs/FULL_SYSTEM_AUDIT_2026.md` is generated with complete severity-ranked findings and resolution status.
+
+## 2026-09-22T17:01:32Z
+
+# Teamwork Project Prompt
+
+> Status: Launched
+> Goal: 90-Day + 1,000-Customer Full Platform Audit, Simulation, UX/Button Review, Bug Fixing & Production Hardening
+> Requested team: Full multi-agent engineering team (Senior ERP Architect, Retail Operations Expert, Senior Accountant, Inventory Management Expert, CRM Expert, POS Specialist, QA Lead, UX/UI Auditor, Database Reliability Engineer, Security Reviewer, Product Manager)
+
+Operate, inspect, test, challenge, and improve the ENTIRE cosmetics retail ERP platform (`ARAYESHI / Kayhan Beauty ERP`) as if it were running a real cosmetics retail store for 90 consecutive business days with at least 1,000 unique synthetic customers, fixing all discovered critical/high bugs, ensuring full cross-module consistency, auditing every UI control, and verifying complete production readiness.
+
+Working directory: d:\ARAYESHI
+Repository: https://github.com/aubed9/hesabdari
+Integrity mode: development
+
+## Requirements
+
+### R1. Baseline Freeze, Database Reliability & Safety First
+- Never run destructive tests against production/business data. Use an isolated disposable database (`db/test_simulation.sqlite3`) for all simulation activities.
+- Run and record the complete baseline of existing test suites (`npm test`, `tests/tier1`, `tests/tier2`, `tests/tier3`, `tests/tier4`, `tests/stress`).
+- Ensure WAL checkpointing, database integrity (`PRAGMA integrity_check = ok`), and zero foreign key violations (`PRAGMA foreign_key_check`).
+
+### R2. 1,000 Realistic Synthetic Customers
+- Generate at least 1,000 unique synthetic customers with realistic lifecycles (new, one-time, repeat, loyal, VIP, dormant, at-risk, wallet users, loyalty point users, returners).
+- Include realistic Persian names, phone numbers, birth dates, RFM segments, and purchasing habits.
+- Test Persian character searching (e.g. `ی / ي` and `ک / ك`).
+
+### R3. 90-Day Progressive Business Simulation
+- Simulate 90 consecutive operational business days behaving like an active cosmetics retail store with thousands of transactions evolving over time:
+  - Days 1–15: Customer acquisition, opening stock, and regular sales.
+  - Days 16–30: Repeat customers, supplier replenishments, and returns.
+  - Days 31–45: Growing customer history, multi-item baskets, and split payments.
+  - Days 46–60: Wallet deposits, loyalty redemptions, and supplier debt payments.
+  - Days 61–75: Dormant customer segmentation, re-engagement, and discount campaigns.
+  - Days 76–90: High-volume operational history, financial period closing, and comprehensive reporting.
+- Cover daily POS checkouts, split payments (Cash, Card, Card-to-Card, Wallet, Points), returns (sealed vs opened/damaged), exchanges, expenses, supplier orders, goods receipts, and debt settlements.
+
+### R4. Complete Double-Entry Accounting & Sub-Ledger Integrity
+- Enforce strict double-entry invariants: every business event must produce balanced journal entries (`SUM(debit) == SUM(credit)`).
+- Ensure Cash (101), Bank (102), Inventory (103), Accounts Receivable (104), Accounts Payable (201), Customer Wallet (205), Sales Revenue (401), and COGS (501) reconcile exactly with sub-ledgers.
+- Guarantee that `Gross Profit = Net Sales - COGS` across all dashboards, reports, and exports.
+
+### R5. Inventory & Expiry-Enforced FEFO Engine
+- Validate inventory constraints at all times: `quantity >= 0`, `reserved_quantity >= 0`, `reserved_quantity <= quantity`.
+- Enforce FEFO: consume earliest-expiring non-expired batches first; block expired stock from sale.
+- Test tester write-offs, damaged stock segregation, and inventory adjustments.
+
+### R6. Complete UI Button & Screen Interaction Audit
+- Inspect and test every visible interactive element across all screens: buttons, tabs, dropdowns, filters, modals, print, export, and search fields.
+- Produce a machine-readable UI Interaction Inventory (`docs/UI_CONTROL_AUDIT.md`).
+- Eliminate dead buttons, fake numbers, and unhandled double-click submissions.
+
+### R7. Systematic Bug-Fixing & Regression Loop
+- For every defect discovered during inspection and simulation:
+  `Reproduce → Root-Cause → Write Regression Test → Fix → Verify → Document`.
+- Perform a final clean 90-day simulation run from a fresh database after all fixes are implemented.
+
+## Verification Resources
+- Existing test suites: `tests/runner.js`, `tests/tier1/`, `tests/tier2/`, `tests/tier3/`, `tests/tier4/`, `tests/stress/`.
+- Simulation script: `scripts/simulate90Days.js`.
+- Health & reconciliation endpoints: `GET /api/admin/reconciliation`, `GET /api/dashboard/overview`.
+
+## Acceptance Criteria
+
+### Accounting & Ledger Integrity
+- [ ] Every journal entry committed in the database satisfies `SUM(debit) == SUM(credit)`.
+- [ ] General Ledger, Trial Balance, P&L, and Balance Sheet reconcile with zero critical discrepancies.
+- [ ] Customer Wallet balance matches the sum of wallet transactions and never goes negative (`wallet_balance >= 0`).
+- [ ] Supplier Accounts Payable matches open purchase orders and invoice ledger.
+
+### Inventory, FEFO & POS Invariants
+- [ ] Standard sales cannot deplete stock below zero or sell expired/reserved goods.
+- [ ] Returns strictly reject quantities exceeding purchased amounts or double returns.
+- [ ] Split payments accurately reconcile to their specific ledger accounts.
+- [ ] Real acquisition costs (COGS) are deducted from sales revenue, ensuring gross profit is accurate.
+
+### UI & Interaction Quality
+- [ ] Zero dead buttons, placeholder actions, or unhandled errors across all application screens.
+- [ ] RTL layout and Persian typography are intact with no broken styles or formatting errors.
+- [ ] Excel/CSV exports contain correct Persian text with UTF-8 BOM encoding.
+
+### Audit & Deliverables
+- [ ] `docs/90_DAY_1000_CUSTOMER_PLATFORM_AUDIT.md` is generated with full simulation metrics and findings.
+- [ ] `docs/UI_CONTROL_AUDIT.md` is generated with the comprehensive control matrix.
+- [ ] `docs/PLATFORM_GAP_ANALYSIS.md` is generated classifying all operational gaps (P0/P1/P2/P3).
+- [ ] All test suites (100%) pass on the final regression run.
+

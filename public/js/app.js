@@ -952,7 +952,7 @@ const app = {
                                                 </span>
                                             </td>
                                             <td class="p-3.5 font-mono text-slate-600">
-                                                ${o.tracking_number ? `${o.courier_name || 'الوپیک'}: ${o.tracking_number}` : '<button class="text-purple-600 font-bold hover:underline">تخصیص پیک</button>'}
+                                                ${o.tracking_number ? `${o.courier_name || 'الوپیک'}: ${o.tracking_number}` : `<button onclick="app.assignCourier(${o.id})" class="text-purple-600 font-bold hover:underline">تخصیص پیک</button>`}
                                             </td>
                                         </tr>
                                     `).join('')}
@@ -965,6 +965,34 @@ const app = {
             lucide.createIcons();
         } catch (e) {
             container.innerHTML = `<div class="p-6 text-center text-rose-500">خطا در بارگذاری سفارشات آنلاین</div>`;
+        }
+    },
+
+    async assignCourier(orderId) {
+        const courier = prompt('نام شرکت پیک یا متصدی ارسال (الوپیک، تیپاکس، پست، اسنپ‌باکس):', 'الوپیک');
+        if (!courier) return;
+        const tracking = prompt('کد رهگیری یا شماره بارنامه مرسوله:', `TRK-${Math.floor(100000 + Math.random() * 900000)}`);
+        if (!tracking) return;
+        try {
+            const res = await fetch('/api/shipments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orderId: orderId,
+                    courierName: courier,
+                    trackingNumber: tracking,
+                    status: 'SHIPPED'
+                })
+            });
+            const json = await res.json();
+            if (json.success) {
+                this.showNotification('پیک و کد رهگیری با موفقیت تخصیص یافت.', 'success');
+                this.loadOnlineOrders();
+            } else {
+                this.showNotification(json.error || 'خطا در تخصیص پیک', 'error');
+            }
+        } catch (e) {
+            this.showNotification('خطا در ارتباط با سرور: ' + e.message, 'error');
         }
     },
 

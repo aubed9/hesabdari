@@ -295,6 +295,22 @@ app.get('/api/dashboard/sales-trend', (req, res) => {
     }
 });
 
+app.get('/api/dashboard/charts', (req, res) => {
+    try {
+        const salesTrend = biService.getSalesTrend();
+        const brands = biService.getBrandPerformance();
+        res.json({
+            success: true,
+            data: {
+                salesTrend,
+                brands
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 app.get('/api/dashboard/sales-heatmap', (req, res) => {
     try {
         const data = biService.getSalesHeatmap();
@@ -780,7 +796,7 @@ app.get('/api/suppliers/aging', (req, res) => {
 // ==========================================
 app.get('/api/crm/customers', (req, res) => {
     try {
-        const customers = crmService.getCustomers();
+        const customers = crmService.getCustomers(req.query.search);
         res.json({ success: true, data: customers });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });

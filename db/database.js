@@ -18,6 +18,53 @@ db.pragma('synchronous = NORMAL');
 const { normalizePersian } = require('../utils/textUtils');
 db.function('NORM_FA', (text) => normalizePersian(text || ''));
 
+function syncCogsAndProfits(database) {
+    try {
+        // 1. Delete orphan test orders with 0 items if any exist
+        database.prepare(`
+            DELETE FROM orders 
+            WHERE id IN (
+                SELECT o.id FROM orders o 
+                LEFT JOIN order_items oi ON o.id = oi.order_id 
+                WHERE oi.id IS NULL
+            )
+        `).run();
+
+        // 2. Backfill order_items unit_cost from product_variants where missing or zero
+        database.prepare(`
+            UPDATE order_items
+            SET unit_cost = (
+                SELECT COALESCE(NULLIF(pv.purchase_price, 0), 0)
+                FROM product_variants pv
+                WHERE pv.id = order_items.product_variant_id
+            )
+            WHERE (unit_cost IS NULL OR unit_cost = 0)
+              AND EXISTS (
+                SELECT 1 FROM product_variants pv 
+                WHERE pv.id = order_items.product_variant_id 
+                  AND pv.purchase_price > 0
+              )
+        `).run();
+
+        // 3. Backfill orders total_cost from order_items
+        database.prepare(`
+            UPDATE orders
+            SET total_cost = (
+                SELECT COALESCE(SUM(oi.quantity * COALESCE(NULLIF(oi.unit_cost, 0), pv.purchase_price, 0)), 0)
+                FROM order_items oi
+                LEFT JOIN product_variants pv ON oi.product_variant_id = pv.id
+                WHERE oi.order_id = orders.id
+            )
+            WHERE (total_cost IS NULL OR total_cost = 0)
+              AND EXISTS (
+                SELECT 1 FROM order_items oi WHERE oi.order_id = orders.id
+              )
+        `).run();
+    } catch (e) {
+        console.warn('⚠️ Warning syncing COGS and profits:', e.message);
+    }
+}
+
 function initDatabase() {
     try {
         const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
@@ -56,6 +103,9 @@ function initDatabase() {
                 `).run(salaryAcc.id);
             }
         }
+
+        // Automatic self-healing sync for COGS and profits
+        syncCogsAndProfits(db);
 
         console.log('✅ SQLite Schema and migrations initialized successfully.');
     } catch (err) {

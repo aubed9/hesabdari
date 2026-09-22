@@ -92,8 +92,8 @@ test.describe('Tier 1: Inventory Item & Product Deletion Engine', () => {
 
         // Simulate a past sales order
         const oRes = db.prepare(`
-            INSERT INTO orders (order_number, total_amount, payment_status, status)
-            VALUES ('ORD-HIST-TEST-' || ?, 75000, 'PAID', 'COMPLETED')
+            INSERT INTO orders (order_number, total_amount, total_cost, payment_status, status)
+            VALUES ('ORD-HIST-TEST-' || ?, 75000, 40000, 'PAID', 'COMPLETED')
         `).run(Date.now());
         const orderId = oRes.lastInsertRowid;
 
@@ -131,6 +131,10 @@ test.describe('Tier 1: Inventory Item & Product Deletion Engine', () => {
         // PRAGMA foreign_key_check
         const fk = db.prepare('PRAGMA foreign_key_check').all();
         assert.equal(fk.length, 0, 'Zero FK violations');
+
+        // Cleanup simulated test order to avoid polluting database
+        db.prepare(`DELETE FROM order_items WHERE order_id = ?`).run(orderId);
+        db.prepare(`DELETE FROM orders WHERE id = ?`).run(orderId);
     });
 
     test('T1-DEL-3: Item with active layaway reservation blocks deletion until reservation is resolved', () => {
