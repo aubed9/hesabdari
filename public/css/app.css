@@ -82,3 +82,29 @@ body {
     z-index: 10;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
+
+/* Sidebar Collapse & Fullscreen POS Transitions */
+#appSidebar {
+    transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), 
+                min-width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                max-width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.2s ease,
+                padding 0.25s ease;
+}
+
+#appSidebar.sidebar-collapsed {
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border-left-width: 0 !important;
+    border-right-width: 0 !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    overflow: hidden !important;
+}
+
+#appSidebar.sidebar-collapsed * {
+    display: none !important;
+}

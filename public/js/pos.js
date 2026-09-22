@@ -32,6 +32,12 @@ const pos = {
                 <div class="flex-1 flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm p-4 overflow-hidden">
                     <!-- Search & Barcode Input Bar -->
                     <div class="flex items-center gap-3 mb-4">
+                        <!-- Quick Sidebar Toggle Button for Cashier / Admin / Manager -->
+                        <button onclick="app.toggleSidebar()" title="باز / بستن هسته‌های مدیریتی برای صفحه عریض فروشگاه [Ctrl+B]" class="px-3 py-2.5 bg-slate-100 hover:bg-purple-100 text-slate-700 hover:text-purple-700 rounded-xl text-xs font-bold border border-slate-200 transition flex items-center gap-1.5 shrink-0 cursor-pointer shadow-sm">
+                            <i data-lucide="panel-right" class="w-4 h-4 text-purple-600"></i>
+                            <span id="posSidebarBtnText">صفحه عریض</span>
+                        </button>
+
                         <div class="relative flex-1">
                             <i data-lucide="scan-barcode" class="w-5 h-5 absolute right-3 top-3 text-slate-400"></i>
                             <input type="text" id="posSearchInput" placeholder="اسکن بارکد کالا یا جستجوی نام، برند، شید رنگ (مثلاً 120 Artist)... [F2]" 
@@ -49,7 +55,7 @@ const pos = {
                     </div>
 
                     <!-- Products Grid -->
-                    <div id="posProductGrid" class="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 pt-3">
+                    <div id="posProductGrid" class="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5 gap-3 pt-3">
                         <div class="col-span-full py-12 text-center text-slate-400">در حال بارگذاری محصولات...</div>
                     </div>
 
@@ -133,6 +139,9 @@ const pos = {
             </div>
         `;
 
+        if (window.app && typeof app.updateSidebarUIState === 'function') {
+            app.updateSidebarUIState();
+        }
         lucide.createIcons();
         this.loadCategoryPills();
         this.loadProducts();

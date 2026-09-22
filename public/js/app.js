@@ -8,6 +8,7 @@ const app = {
         this.bindModals();
         this.updatePersianDate();
         this.updateAlertCount();
+        this.initSidebarState();
 
         // Check login state from localStorage
         const savedUser = localStorage.getItem('currentUser');
@@ -1776,6 +1777,72 @@ const app = {
         const safeRange = range || 'TODAY';
         this.showNotification('در حال آماده‌سازی و دانلود فایل اکسل جامع داشبورد...', 'info');
         window.location.href = `/api/dashboard/export/excel?range=${encodeURIComponent(safeRange)}`;
+    },
+
+    // Sidebar Collapse / Expand Management (هسته‌های مدیریتی)
+    toggleSidebar(forceState = null) {
+        const sidebar = document.getElementById('appSidebar');
+        if (!sidebar) return;
+
+        const isCurrentlyCollapsed = sidebar.classList.contains('sidebar-collapsed');
+        const shouldCollapse = (forceState !== null) ? !forceState : !isCurrentlyCollapsed;
+
+        if (shouldCollapse) {
+            sidebar.classList.add('sidebar-collapsed');
+            localStorage.setItem('sidebar_collapsed', 'true');
+            this.showNotification('منوی مدیریت بسته شد. صفحه فروش عریض‌تر شد.', 'info');
+        } else {
+            sidebar.classList.remove('sidebar-collapsed');
+            localStorage.setItem('sidebar_collapsed', 'false');
+            this.showNotification('منوی هسته‌های مدیریتی باز شد.', 'info');
+        }
+
+        this.updateSidebarUIState();
+    },
+
+    updateSidebarUIState() {
+        const sidebar = document.getElementById('appSidebar');
+        if (!sidebar) return;
+        const isCollapsed = sidebar.classList.contains('sidebar-collapsed');
+
+        const toggleBtn = document.getElementById('headerSidebarToggleBtn');
+        if (toggleBtn) {
+            if (isCollapsed) {
+                toggleBtn.classList.add('bg-purple-600', 'text-white', 'hover:bg-purple-700');
+                toggleBtn.classList.remove('bg-slate-100', 'text-slate-700', 'hover:bg-purple-100');
+                toggleBtn.setAttribute('title', 'باز کردن منوی هسته‌های مدیریتی (Ctrl+B)');
+            } else {
+                toggleBtn.classList.remove('bg-purple-600', 'text-white', 'hover:bg-purple-700');
+                toggleBtn.classList.add('bg-slate-100', 'text-slate-700', 'hover:bg-purple-100');
+                toggleBtn.setAttribute('title', 'بستن منوی هسته‌های مدیریتی جهت بزرگ شدن صفحه فروشگاه (Ctrl+B)');
+            }
+        }
+
+        const posBtn = document.getElementById('posSidebarBtnText');
+        if (posBtn) {
+            posBtn.innerText = isCollapsed ? 'نمایش منو' : 'صفحه عریض';
+        }
+
+        if (window.lucide) {
+            lucide.createIcons();
+        }
+    },
+
+    initSidebarState() {
+        const saved = localStorage.getItem('sidebar_collapsed');
+        const sidebar = document.getElementById('appSidebar');
+        if (sidebar && saved === 'true') {
+            sidebar.classList.add('sidebar-collapsed');
+        }
+        this.updateSidebarUIState();
+
+        // Keyboard Shortcut: Ctrl+B to toggle sidebar
+        window.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B' || e.key === 'ذ')) {
+                e.preventDefault();
+                this.toggleSidebar();
+            }
+        });
     },
 
     // Global Modal Helpers
