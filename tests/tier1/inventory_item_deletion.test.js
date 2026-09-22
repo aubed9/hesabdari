@@ -1,10 +1,29 @@
-const test = require('node:test');
+const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
-const db = require('../../db/database');
-const inventoryService = require('../../services/inventoryService');
-const posService = require('../../services/posService');
+const {
+    setupTestDb,
+    teardownTestDb,
+    seedBrandAndCategory,
+    seedSupplier,
+    seedProductWithBatches
+} = require('../helpers/testDb');
 
-test.describe('Tier 1: Inventory Item & Product Deletion Engine', () => {
+describe('Tier 1: Inventory Item & Product Deletion Engine', () => {
+    let db, fixtures, inventoryService, posService;
+
+    beforeEach(() => {
+        const setup = setupTestDb();
+        db = setup.db;
+        fixtures = setup.fixtures;
+        seedBrandAndCategory(db);
+        seedSupplier(db);
+        inventoryService = require('../../services/inventoryService');
+        posService = require('../../services/posService');
+    });
+
+    afterEach(() => {
+        teardownTestDb();
+    });
 
     test('T1-DEL-1: Newly created inventory item with no order history is hard deleted cleanly', () => {
         // Create isolated test product and variant
@@ -131,10 +150,6 @@ test.describe('Tier 1: Inventory Item & Product Deletion Engine', () => {
         // PRAGMA foreign_key_check
         const fk = db.prepare('PRAGMA foreign_key_check').all();
         assert.equal(fk.length, 0, 'Zero FK violations');
-
-        // Cleanup simulated test order to avoid polluting database
-        db.prepare(`DELETE FROM order_items WHERE order_id = ?`).run(orderId);
-        db.prepare(`DELETE FROM orders WHERE id = ?`).run(orderId);
     });
 
     test('T1-DEL-3: Item with active layaway reservation blocks deletion until reservation is resolved', () => {
@@ -204,7 +219,11 @@ test.describe('Tier 1: Inventory Item & Product Deletion Engine', () => {
     });
 
     test('T1-DEL-5: deleteBatch deletes non-referenced batch or zeroes out referenced batch', () => {
-        const variant = db.prepare(`SELECT id FROM product_variants WHERE is_active = 1 LIMIT 1`).get();
+        let variant = db.prepare(`SELECT id FROM product_variants WHERE is_active = 1 LIMIT 1`).get();
+        if (!variant) {
+            const seeded = seedProductWithBatches(db);
+            variant = { id: seeded.variantId };
+        }
         
         // Add fresh batch
         const bRes = db.prepare(`

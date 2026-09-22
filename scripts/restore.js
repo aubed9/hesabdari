@@ -55,6 +55,12 @@ function findLatestBackup(backupDir = BACKUPS_DIR) {
  */
 function verifyDatabaseIntegrity(filePath) {
     if (!fs.existsSync(filePath)) return false;
+    try {
+        const stats = fs.statSync(filePath);
+        if (!stats.isFile() || stats.size < 100) return false;
+    } catch (_) {
+        return false;
+    }
     let db;
     try {
         db = new Database(filePath, { readonly: true, timeout: 5000 });

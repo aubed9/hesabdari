@@ -1,4 +1,23 @@
 // POS & Checkout Client Module
+if (typeof window !== 'undefined' && !window.normalizePersian) {
+    window.normalizePersian = function(str) {
+        if (!str || typeof str !== 'string') return '';
+        return str
+            .replace(/ي/g, 'ی')
+            .replace(/ك/g, 'ک')
+            .replace(/ة/g, 'ه')
+            .replace(/ؤ/g, 'و')
+            .replace(/إ/g, 'ا')
+            .replace(/أ/g, 'ا')
+            .replace(/ء/g, '')
+            .replace(/[\u064B-\u065F]/g, '')
+            .trim();
+    };
+}
+const normalizePersian = typeof window !== 'undefined' && window.normalizePersian 
+    ? window.normalizePersian 
+    : (str) => (!str ? '' : String(str).replace(/ي/g, 'ی').replace(/ك/g, 'ک').trim());
+
 const pos = {
     cart: [],
     selectedCustomer: null,
@@ -514,13 +533,13 @@ const pos = {
     },
 
     filterCustomers(query) {
-        const q = (query || '').trim().toLowerCase();
+        const q = normalizePersian(query || '').toLowerCase();
         if (!this.allCustomers) return;
 
         const filtered = this.allCustomers.filter(c => {
-            const nameMatch = (c.full_name || '').toLowerCase().includes(q);
+            const nameMatch = normalizePersian(c.full_name || '').toLowerCase().includes(q);
             const mobileMatch = (c.mobile || '').includes(q);
-            const codeMatch = (c.customer_code || '').toLowerCase().includes(q);
+            const codeMatch = normalizePersian(c.customer_code || '').toLowerCase().includes(q);
             return nameMatch || mobileMatch || codeMatch;
         });
 

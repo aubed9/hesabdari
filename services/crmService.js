@@ -1,13 +1,18 @@
 // CRM, Customer 360, Loyalty, RFM & Wallet Service
 const db = require('../db/database');
-const { normalizeIranianMobile, formatMobileForExcel, formatMobileWithoutZero, validateIranianMobile } = require('../utils/textUtils');
+const { normalizeIranianMobile, formatMobileForExcel, formatMobileWithoutZero, validateIranianMobile, normalizePersian } = require('../utils/textUtils');
 const { toJalaliDateString, toJalaliFriendly, getCurrentJalaliDate, parseJalaliInputToGregorian, getJalaliMonthName, PERSIAN_MONTH_NAMES } = require('../utils/dateUtils');
 
 const crmService = {
+    // Search customers with Persian character normalization (Arabic Yeh/Kaf to Persian: ي -> ی, ك -> ک)
+    searchCustomers(query) {
+        return this.getCustomers(query);
+    },
+
     // Get all customers with RFM and summary metrics, with optional Persian search normalization (NORM_FA)
     getCustomers(search = null) {
-        if (search && search.trim()) {
-            const cleanSearch = search.trim();
+        if (search && String(search).trim()) {
+            const cleanSearch = String(search).trim();
             return db.prepare(`
                 SELECT 
                     c.*,
@@ -20,7 +25,7 @@ const crmService = {
                 LEFT JOIN orders o ON c.id = o.customer_id AND o.status = 'COMPLETED'
                 WHERE c.is_active = 1
                   AND (NORM_FA(c.full_name) LIKE '%' || NORM_FA(?) || '%' 
-                       OR c.mobile LIKE '%' || ? || '%' 
+                       OR NORM_FA(c.mobile) LIKE '%' || NORM_FA(?) || '%' 
                        OR c.referral_code LIKE '%' || ? || '%')
                 GROUP BY c.id
                 ORDER BY total_spent DESC
@@ -480,8 +485,8 @@ const crmService = {
         for (const c of allCustomers) {
             // Filter: Search Query
             if (searchQuery) {
-                const q = searchQuery.toLowerCase().trim();
-                const matchName = (c.full_name || '').toLowerCase().includes(q);
+                const q = normalizePersian(searchQuery).toLowerCase().trim();
+                const matchName = normalizePersian(c.full_name || '').toLowerCase().includes(q);
                 const matchMob = (c.mobile || '').includes(q);
                 const matchCode = (c.customer_code || c.referral_code || '').toLowerCase().includes(q);
                 if (!matchName && !matchMob && !matchCode) continue;

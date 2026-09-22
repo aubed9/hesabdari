@@ -1,4 +1,23 @@
 // CRM, Customer 360, Loyalty Club & RFM Client Module
+if (typeof window !== 'undefined' && !window.normalizePersian) {
+    window.normalizePersian = function(str) {
+        if (!str || typeof str !== 'string') return '';
+        return str
+            .replace(/ي/g, 'ی')
+            .replace(/ك/g, 'ک')
+            .replace(/ة/g, 'ه')
+            .replace(/ؤ/g, 'و')
+            .replace(/إ/g, 'ا')
+            .replace(/أ/g, 'ا')
+            .replace(/ء/g, '')
+            .replace(/[\u064B-\u065F]/g, '')
+            .trim();
+    };
+}
+const normalizePersian = typeof window !== 'undefined' && window.normalizePersian 
+    ? window.normalizePersian 
+    : (str) => (!str ? '' : String(str).replace(/ي/g, 'ی').replace(/ك/g, 'ک').trim());
+
 const crm = {
     async init() {
         this.render();
@@ -288,17 +307,30 @@ const crm = {
         this.applyFilters();
     },
 
+    normalizeText(str) {
+        if (!str) return '';
+        let s = normalizePersian(String(str)).toLowerCase().trim();
+        const persianDigits = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
+        const arabicDigits  = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
+        for (let i = 0; i < 10; i++) {
+            s = s.replace(new RegExp(persianDigits[i], 'g'), String(i));
+            s = s.replace(new RegExp(arabicDigits[i], 'g'), String(i));
+        }
+        return s;
+    },
+
     applyFilters() {
-        const q = (document.getElementById('crmSearchInput')?.value || '').trim().toLowerCase();
+        const rawQ = document.getElementById('crmSearchInput')?.value || '';
+        const q = this.normalizeText(rawQ);
         const tier = document.getElementById('crmTierFilter')?.value || '';
         const seg = document.getElementById('crmSegmentFilter')?.value || '';
 
         this.filteredCustomers = this.customers.filter(c => {
-            const matchesQ = !q || 
-                (c.full_name && c.full_name.toLowerCase().includes(q)) || 
-                (c.mobile && c.mobile.includes(q)) || 
-                (c.referral_code && c.referral_code.toLowerCase().includes(q)) ||
-                (c.customer_code && c.customer_code.toLowerCase().includes(q));
+            const name = this.normalizeText(c.full_name);
+            const mob = String(c.mobile || '').replace(/[^\d]/g, '');
+            const ref = this.normalizeText(c.referral_code);
+            const code = this.normalizeText(c.customer_code);
+            const matchesQ = !q || name.includes(q) || mob.includes(q) || ref.includes(q) || code.includes(q);
 
             const matchesTier = !tier || c.loyalty_tier === tier;
 

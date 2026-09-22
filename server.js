@@ -1217,6 +1217,19 @@ app.post('/api/omnichannel/shipments', (req, res) => {
     }
 });
 
+app.post('/api/shipments', (req, res) => {
+    try {
+        const { orderId, customerId, courierName, trackingNumber, shippingFee, deliveryAddress } = req.body;
+        const resStmt = db.prepare(`
+            INSERT INTO shipments (order_id, customer_id, courier_name, tracking_number, shipping_fee, delivery_address, status, sent_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'IN_TRANSIT', CURRENT_TIMESTAMP)
+        `).run(orderId, customerId || null, courierName, trackingNumber, shippingFee || 0, deliveryAddress || '');
+        res.json({ success: true, data: { shipmentId: resStmt.lastInsertRowid } });
+    } catch (err) {
+        res.status(400).json({ success: false, error: err.message });
+    }
+});
+
 // ==========================================
 // 8. CREATE PRODUCT & INITIAL INVENTORY BATCH API
 // ==========================================
