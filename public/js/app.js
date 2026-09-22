@@ -604,6 +604,7 @@ const app = {
                                     <th class="p-3.5 text-center">موجودی انبار</th>
                                     <th class="p-3.5">ارزش خرید (بهای تمام شده)</th>
                                     <th class="p-3.5">ارزش فروشگاهی</th>
+                                    <th class="p-3.5 text-center">عملیات</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100">
@@ -627,6 +628,12 @@ const app = {
                                         </td>
                                         <td class="p-3.5 font-bold font-mono text-emerald-700">
                                             ${Number(p.total_retail_value || 0).toLocaleString('fa-IR')} ت
+                                        </td>
+                                        <td class="p-3.5 text-center">
+                                            <button onclick="app.confirmDeleteProduct(${p.id}, '${(p.name_fa || p.name || '').replace(/'/g, "\\'")}', ${p.total_stock || 0})" class="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-800 rounded-lg text-xs font-medium transition flex items-center gap-1 mx-auto" title="حذف کامل این کالا از انبار">
+                                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                                <span>حذف کالا</span>
+                                            </button>
                                         </td>
                                     </tr>
                                 `).join('')}
@@ -1134,6 +1141,58 @@ const app = {
             }
         } catch (e) {
             this.showNotification('خطای شبکه در ارتباط با سرور', 'error');
+        }
+    },
+
+    confirmDeleteProduct(productId, productName, stock) {
+        this.openModal(`
+            <div class="p-2 text-right">
+                <div class="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-3">
+                    <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+                </div>
+                <h3 class="text-base font-bold text-slate-900 text-center mb-1">حذف کالا و واریانت‌ها از انبار</h3>
+                <p class="text-xs text-slate-500 text-center mb-4">آیا از حذف کامل این کالا و تمام سری‌های ساخت آن از انبار اطمینان دارید؟</p>
+                
+                <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-1.5 mb-4">
+                    <div class="flex justify-between"><span class="text-slate-500">عنوان کالا:</span><span class="font-bold text-slate-800">${productName}</span></div>
+                    <div class="flex justify-between"><span class="text-slate-500">مجموع موجودی انبار:</span><span class="font-bold font-mono text-purple-700">${stock} عدد</span></div>
+                </div>
+
+                <div class="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-[11px] mb-4 leading-relaxed">
+                    ⚠️ <strong>هشدار:</strong> با حذف کالا، کلیه واریانت‌ها و رکوردهای موجودی آن از انبار تخلیه شده و از صفحه صندوق فروش (POS) و محاسبه ارزش کل انبار حذف می‌گردند.
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button onclick="app.closeModal()" class="w-1/2 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition">
+                        انصراف
+                    </button>
+                    <button onclick="app.executeDeleteProduct(${productId})" class="w-1/2 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm shadow-rose-200">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        <span>بله، حذف کامل</span>
+                    </button>
+                </div>
+            </div>
+        `);
+        lucide.createIcons();
+    },
+
+    async executeDeleteProduct(productId) {
+        try {
+            const res = await fetch(`/api/products/${productId}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason: 'حذف دستی محصول توسط مدیر' })
+            });
+            const json = await res.json();
+            if (json.success) {
+                this.closeModal();
+                this.showNotification(json.message || 'محصول با موفقیت از انبار حذف شد.', 'success');
+                await this.renderProducts();
+            } else {
+                this.showNotification(json.error || 'خطا در حذف محصول', 'error');
+            }
+        } catch (e) {
+            this.showNotification('خطای ارتباط با سرور', 'error');
         }
     },
 

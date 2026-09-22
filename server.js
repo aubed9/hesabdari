@@ -547,6 +547,48 @@ app.post('/api/inventory/stock-count/:id/finalize', (req, res) => {
     }
 });
 
+// Delete Inventory Item (Product Variant) API
+const handleDeleteInventoryItem = (req, res) => {
+    try {
+        const { reason = 'حذف دستی از انبار' } = req.body || {};
+        const userId = req.headers['x-user-id'] || 1;
+        const result = inventoryService.deleteInventoryItem(Number(req.params.variantId), { reason, userId });
+        res.json({ success: true, message: result.message, data: result });
+    } catch (err) {
+        res.status(400).json({ success: false, error: err.message });
+    }
+};
+app.delete('/api/inventory/items/:variantId', handleDeleteInventoryItem);
+app.post('/api/inventory/items/:variantId/delete', handleDeleteInventoryItem);
+
+// Delete Specific Inventory Batch API
+const handleDeleteBatch = (req, res) => {
+    try {
+        const { reason = 'حذف دستی سری ساخت' } = req.body || {};
+        const userId = req.headers['x-user-id'] || 1;
+        const result = inventoryService.deleteBatch(Number(req.params.batchId), { reason, userId });
+        res.json({ success: true, message: result.message, data: result });
+    } catch (err) {
+        res.status(400).json({ success: false, error: err.message });
+    }
+};
+app.delete('/api/inventory/batches/:batchId', handleDeleteBatch);
+app.post('/api/inventory/batches/:batchId/delete', handleDeleteBatch);
+
+// Delete Product and all its Variants API
+const handleDeleteProduct = (req, res) => {
+    try {
+        const { reason = 'حذف دستی محصول' } = req.body || {};
+        const userId = req.headers['x-user-id'] || 1;
+        const result = inventoryService.deleteProduct(Number(req.params.id), { reason, userId });
+        res.json({ success: true, message: result.message, data: result });
+    } catch (err) {
+        res.status(400).json({ success: false, error: err.message });
+    }
+};
+app.delete('/api/products/:id', handleDeleteProduct);
+app.post('/api/products/:id/delete', handleDeleteProduct);
+
 // ==========================================
 // 4. PRODUCTS, BRANDS & CATEGORIES APIS
 // ==========================================
@@ -557,28 +599,29 @@ app.get('/api/products', (req, res) => {
                 p.*,
                 b.name AS brand_name,
                 c.name_fa AS category_name,
-                (SELECT COUNT(*) FROM product_variants WHERE product_id = p.id) AS variant_count,
+                (SELECT COUNT(*) FROM product_variants WHERE product_id = p.id AND is_active = 1) AS variant_count,
                 (
                     SELECT COALESCE(SUM(ib.quantity), 0)
                     FROM inventory_batches ib
                     JOIN product_variants pv ON ib.product_variant_id = pv.id
-                    WHERE pv.product_id = p.id
+                    WHERE pv.product_id = p.id AND pv.is_active = 1
                 ) AS total_stock,
                 (
                     SELECT COALESCE(SUM(ib.quantity * pv.purchase_price), 0)
                     FROM inventory_batches ib
                     JOIN product_variants pv ON ib.product_variant_id = pv.id
-                    WHERE pv.product_id = p.id
+                    WHERE pv.product_id = p.id AND pv.is_active = 1
                 ) AS total_cost_value,
                 (
                     SELECT COALESCE(SUM(ib.quantity * pv.selling_price), 0)
                     FROM inventory_batches ib
                     JOIN product_variants pv ON ib.product_variant_id = pv.id
-                    WHERE pv.product_id = p.id
+                    WHERE pv.product_id = p.id AND pv.is_active = 1
                 ) AS total_retail_value
             FROM products p
             JOIN brands b ON p.brand_id = b.id
             JOIN categories c ON p.category_id = c.id
+            WHERE p.is_active = 1
             ORDER BY p.id DESC
         `).all();
 
@@ -588,10 +631,16 @@ app.get('/api/products', (req, res) => {
                 COALESCE(SUM(ib.quantity * pv.purchase_price), 0) AS grand_total_cost_value,
                 COALESCE(SUM(ib.quantity * pv.selling_price), 0) AS grand_total_retail_value,
                 (SELECT COUNT(*) FROM products WHERE is_active = 1) AS total_products_count,
-                (SELECT COUNT(*) FROM product_variants WHERE is_active = 1) AS total_variants_count
+                (
+                    SELECT COUNT(*) 
+                    FROM product_variants pv 
+                    JOIN products p ON pv.product_id = p.id 
+                    WHERE pv.is_active = 1 AND p.is_active = 1
+                ) AS total_variants_count
             FROM inventory_batches ib
             JOIN product_variants pv ON ib.product_variant_id = pv.id
-            WHERE pv.is_active = 1
+            JOIN products p ON pv.product_id = p.id
+            WHERE pv.is_active = 1 AND p.is_active = 1
         `).get() || {
             grand_total_stock: 0,
             grand_total_cost_value: 0,

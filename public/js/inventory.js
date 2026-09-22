@@ -219,9 +219,16 @@ const inventory = {
                                             </span>
                                         </td>
                                         <td class="p-3.5 text-center">
-                                            <button onclick="inventory.viewBatches(${item.variant_id})" class="text-purple-600 hover:text-purple-800 font-medium hover:underline text-xs">
-                                                مشاهده بچ‌ها (${item.batch_count})
-                                            </button>
+                                            <div class="flex items-center justify-center gap-1.5">
+                                                <button onclick="inventory.viewBatches(${item.variant_id})" class="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-xs font-medium transition flex items-center gap-1" title="مشاهده بچ‌ها و تاریخ انقضا">
+                                                    <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                                                    <span>بچ‌ها (${item.batch_count})</span>
+                                                </button>
+                                                <button onclick="inventory.confirmDeleteItem(${item.variant_id}, '${(item.product_name_fa || item.product_name || '').replace(/'/g, "\\'")}', '${(item.shade || '').replace(/'/g, "\\'")}', ${item.total_stock || 0})" class="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-800 rounded-lg text-xs font-medium transition flex items-center gap-1" title="حذف این کالا از انبار">
+                                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                                    <span>حذف از انبار</span>
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 `).join('')}
@@ -595,6 +602,7 @@ const inventory = {
             app.openModal(`
                 <h3 class="text-base font-bold text-slate-900 mb-3">سری‌های ساخت و تاریخ‌های انقضا (FEFO Log)</h3>
                 <div class="space-y-3 max-h-80 overflow-y-auto">
+                    ${batches.length === 0 ? '<div class="py-6 text-center text-slate-400 text-xs">هیچ سری ساخت فعالی برای این کالا وجود ندارد.</div>' : ''}
                     ${batches.map(b => `
                         <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs">
                             <div>
@@ -602,18 +610,106 @@ const inventory = {
                                 <div class="text-slate-500 mt-0.5">تولید: ${b.manufacture_date || '-'} | انقضا: ${b.expiry_date}</div>
                                 <div class="text-[11px] text-slate-400">تأمین‌کننده: ${b.supplier_name || 'نامشخص'}</div>
                             </div>
-                            <div class="text-left">
-                                <span class="font-bold text-sm ${b.days_until_expiry <= 30 ? 'text-rose-600' : 'text-purple-700'}">
-                                    ${b.quantity} عدد
-                                </span>
-                                <div class="text-[11px] text-slate-500">${b.days_until_expiry} روز مانده</div>
+                            <div class="flex items-center gap-3">
+                                <div class="text-left">
+                                    <span class="font-bold text-sm ${b.days_until_expiry <= 30 ? 'text-rose-600' : 'text-purple-700'}">
+                                        ${b.quantity} عدد
+                                    </span>
+                                    <div class="text-[11px] text-slate-500">${b.days_until_expiry} روز مانده</div>
+                                </div>
+                                <button onclick="inventory.confirmDeleteBatch(${b.id}, '${b.batch_number}', ${variantId}, ${b.quantity})" class="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition" title="حذف این سری ساخت">
+                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                </button>
                             </div>
                         </div>
                     `).join('')}
                 </div>
             `);
+            lucide.createIcons();
         } catch (e) {
             app.showNotification('خطا در دریافت لیست بچ‌ها', 'error');
+        }
+    },
+
+    confirmDeleteItem(variantId, productName, shade, stock) {
+        const title = shade ? `${productName} (${shade})` : productName;
+        app.openModal(`
+            <div class="p-2 text-right">
+                <div class="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-3">
+                    <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+                </div>
+                <h3 class="text-base font-bold text-slate-900 text-center mb-1">حذف کالا از انبار</h3>
+                <p class="text-xs text-slate-500 text-center mb-4">آیا از حذف این کالا از انبار اطمینان دارید؟</p>
+                
+                <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-1.5 mb-4">
+                    <div class="flex justify-between"><span class="text-slate-500">عنوان کالا:</span><span class="font-bold text-slate-800">${title}</span></div>
+                    <div class="flex justify-between"><span class="text-slate-500">موجودی فعلی در انبار:</span><span class="font-bold font-mono text-purple-700">${stock} عدد</span></div>
+                </div>
+
+                <div class="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-[11px] mb-4 leading-relaxed">
+                    ⚠️ <strong>توجه:</strong> با تایید حذف، این کالا از کاردکس موجودی انبار، محاسبات ارزش کل انبار و ویترین فروشگاه و صندوق (POS) حذف خواهد شد.
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button onclick="app.closeModal()" class="w-1/2 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition">
+                        انصراف
+                    </button>
+                    <button onclick="inventory.executeDeleteItem(${variantId})" class="w-1/2 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm shadow-rose-200">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        <span>بله، حذف از انبار</span>
+                    </button>
+                </div>
+            </div>
+        `);
+        lucide.createIcons();
+    },
+
+    async executeDeleteItem(variantId) {
+        try {
+            const res = await fetch(`/api/inventory/items/${variantId}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason: 'حذف دستی توسط کاربر از پنل انبارداری' })
+            });
+            const json = await res.json();
+            if (json.success) {
+                app.closeModal();
+                app.showNotification(json.message || 'کالا با موفقیت از انبار حذف شد.', 'success');
+                await this.loadTabContent();
+            } else {
+                app.showNotification(json.error || 'خطا در حذف کالا از انبار', 'error');
+            }
+        } catch (e) {
+            app.showNotification('خطای شبکه در حذف کالا', 'error');
+        }
+    },
+
+    confirmDeleteBatch(batchId, batchNumber, variantId, qty) {
+        if (!confirm(`آیا از حذف سری ساخت «${batchNumber}» با موجودی ${qty} عدد از انبار اطمینان دارید؟`)) return;
+        this.executeDeleteBatch(batchId, variantId);
+    },
+
+    async executeDeleteBatch(batchId, variantId) {
+        try {
+            const res = await fetch(`/api/inventory/batches/${batchId}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason: 'حذف دستی سری ساخت از پنل انبار' })
+            });
+            const json = await res.json();
+            if (json.success) {
+                app.showNotification(json.message || 'سری ساخت حذف گردید.', 'success');
+                // Refresh batch modal and stock table
+                this.viewBatches(variantId);
+                const pane = document.getElementById('invContentPane');
+                if (pane && this.activeTab === 'stock') {
+                    this.renderStockView(pane);
+                }
+            } else {
+                app.showNotification(json.error || 'خطا در حذف سری ساخت', 'error');
+            }
+        } catch (e) {
+            app.showNotification('خطای ارتباط با سرور', 'error');
         }
     },
 

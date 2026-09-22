@@ -31,7 +31,7 @@ const inventoryService = {
             JOIN brands b ON p.brand_id = b.id
             JOIN categories c ON p.category_id = c.id
             LEFT JOIN inventory_batches ib ON pv.id = ib.product_variant_id
-            WHERE pv.is_active = 1
+            WHERE pv.is_active = 1 AND p.is_active = 1
             GROUP BY pv.id
             ORDER BY total_stock ASC, earliest_expiry ASC
         `).all();
@@ -71,7 +71,7 @@ const inventoryService = {
             JOIN product_variants pv ON ib.product_variant_id = pv.id
             JOIN products p ON pv.product_id = p.id
             JOIN brands b ON p.brand_id = b.id
-            WHERE ib.quantity > 0
+            WHERE ib.quantity > 0 AND pv.is_active = 1 AND p.is_active = 1
             ORDER BY ib.expiry_date ASC
         `;
         const batches = db.prepare(query).all();
@@ -363,7 +363,7 @@ const inventoryService = {
             JOIN brands b ON p.brand_id = b.id
             LEFT JOIN inventory_batches ib ON pv.id = ib.product_variant_id
             LEFT JOIN suppliers s ON b.supplier_id = s.id
-            WHERE pv.is_active = 1
+            WHERE pv.is_active = 1 AND p.is_active = 1
             GROUP BY pv.id
         `).all();
 
@@ -421,6 +421,209 @@ const inventoryService = {
             ORDER BY st.created_at DESC
             LIMIT ?
         `).all(limit);
+    },
+
+    // Delete or safely deactivate an inventory item (product variant)
+    deleteInventoryItem(variantId, { reason = 'MANUAL_DELETION', userId = 1 } = {}) {
+        const variant = db.prepare(`
+            SELECT pv.*, p.name_fa AS product_name_fa, p.name AS product_name, p.id AS product_id
+            FROM product_variants pv
+            JOIN products p ON pv.product_id = p.id
+            WHERE pv.id = ?
+        `).get(variantId);
+
+        if (!variant) {
+            throw new Error('کالای مورد نظر در انبار یافت نشد.');
+        }
+
+        // Check if there is active layaway reservation
+        const reservedStock = db.prepare(`
+            SELECT COALESCE(SUM(reserved_quantity), 0) AS total_reserved
+            FROM inventory_batches
+            WHERE product_variant_id = ?
+        `).get(variantId).total_reserved;
+
+        if (reservedStock > 0) {
+            throw new Error(`امکان حذف کالا وجود ندارد؛ این کالا دارای ${reservedStock} عدد موجودی رزرو شده در سفارش‌های بیعانه فعال است.`);
+        }
+
+        // Check for historical business records that require FK preservation
+        const hasOrders = db.prepare(`SELECT COUNT(*) AS c FROM order_items WHERE product_variant_id = ?`).get(variantId).c > 0;
+        const hasPurchases = db.prepare(`SELECT COUNT(*) AS c FROM purchase_order_items WHERE product_variant_id = ?`).get(variantId).c > 0;
+        const hasReturns = db.prepare(`SELECT COUNT(*) AS c FROM return_items WHERE product_variant_id = ?`).get(variantId).c > 0;
+
+        const hasHistory = hasOrders || hasPurchases || hasReturns;
+
+        const runTx = db.transaction(() => {
+            if (hasHistory) {
+                // Soft delete / Archival mode:
+                // 1. Zero out warehouse batches
+                db.prepare(`
+                    UPDATE inventory_batches 
+                    SET quantity = 0, reserved_quantity = 0 
+                    WHERE product_variant_id = ?
+                `).run(variantId);
+
+                // 2. Deactivate variant
+                db.prepare(`UPDATE product_variants SET is_active = 0 WHERE id = ?`).run(variantId);
+
+                // 3. If all siblings are inactive, deactivate the product as well
+                const activeSiblings = db.prepare(`
+                    SELECT COUNT(*) AS c 
+                    FROM product_variants 
+                    WHERE product_id = ? AND is_active = 1
+                `).get(variant.product_id).c;
+
+                let productDeactivated = false;
+                if (activeSiblings === 0) {
+                    db.prepare(`UPDATE products SET is_active = 0 WHERE id = ?`).run(variant.product_id);
+                    productDeactivated = true;
+                }
+
+                // 4. Audit log
+                db.prepare(`
+                    INSERT INTO audit_logs (employee_id, actor_id, action, entity, entity_id, details)
+                    VALUES (?, ?, 'DEACTIVATE_INVENTORY_ITEM', 'product_variants', ?, ?)
+                `).run(
+                    userId, 
+                    userId, 
+                    String(variantId), 
+                    JSON.stringify({
+                        reason,
+                        variantId,
+                        sku: variant.sku,
+                        productName: variant.product_name_fa || variant.product_name,
+                        productDeactivated,
+                        mode: 'ARCHIVED'
+                    })
+                );
+
+                return {
+                    success: true,
+                    mode: 'ARCHIVED',
+                    productDeleted: productDeactivated,
+                    message: `کالای «${variant.product_name_fa || variant.product_name}» به دلیل داشتن سابقه فاکتورهای قبلی، با موفقیت از انبار فعال و صندوق فروش حذف و به بایگانی منتقل شد.`
+                };
+            } else {
+                // Hard delete mode: Completely purge since no financial/order history exists
+                db.prepare(`DELETE FROM stock_count_items WHERE product_variant_id = ?`).run(variantId);
+                db.prepare(`DELETE FROM testers WHERE product_variant_id = ?`).run(variantId);
+                db.prepare(`DELETE FROM stock_transactions WHERE product_variant_id = ?`).run(variantId);
+                db.prepare(`DELETE FROM inventory_batches WHERE product_variant_id = ?`).run(variantId);
+                db.prepare(`DELETE FROM product_variants WHERE id = ?`).run(variantId);
+
+                // Check remaining variants of this product
+                const remainingVariants = db.prepare(`
+                    SELECT COUNT(*) AS c 
+                    FROM product_variants 
+                    WHERE product_id = ?
+                `).get(variant.product_id).c;
+
+                let productDeleted = false;
+                if (remainingVariants === 0) {
+                    db.prepare(`DELETE FROM products WHERE id = ?`).run(variant.product_id);
+                    productDeleted = true;
+                }
+
+                // Audit log
+                db.prepare(`
+                    INSERT INTO audit_logs (employee_id, actor_id, action, entity, entity_id, details)
+                    VALUES (?, ?, 'DELETE_INVENTORY_ITEM', 'product_variants', ?, ?)
+                `).run(
+                    userId, 
+                    userId, 
+                    String(variantId), 
+                    JSON.stringify({
+                        reason,
+                        variantId,
+                        sku: variant.sku,
+                        productName: variant.product_name_fa || variant.product_name,
+                        productDeleted,
+                        mode: 'DELETED'
+                    })
+                );
+
+                return {
+                    success: true,
+                    mode: 'DELETED',
+                    productDeleted,
+                    message: `کالای «${variant.product_name_fa || variant.product_name}» با موفقیت به‌طور کامل از انبار و سامانه حذف گردید.`
+                };
+            }
+        });
+
+        return runTx();
+    },
+
+    // Delete a full product and all its variants from inventory
+    deleteProduct(productId, { reason = 'MANUAL_DELETION', userId = 1 } = {}) {
+        const product = db.prepare(`SELECT * FROM products WHERE id = ?`).get(productId);
+        if (!product) {
+            throw new Error('محصول مورد نظر یافت نشد.');
+        }
+
+        const variants = db.prepare(`SELECT id FROM product_variants WHERE product_id = ?`).all(productId);
+        
+        const results = [];
+        for (const v of variants) {
+            results.push(this.deleteInventoryItem(v.id, { reason, userId }));
+        }
+
+        // If product still exists in db (because some variants were archived), ensure it is marked inactive
+        const stillExists = db.prepare(`SELECT id, is_active FROM products WHERE id = ?`).get(productId);
+        if (stillExists) {
+            db.prepare(`UPDATE products SET is_active = 0 WHERE id = ?`).run(productId);
+        }
+
+        return {
+            success: true,
+            productId,
+            variantsDeleted: variants.length,
+            message: `محصول «${product.name_fa || product.name}» و کلیه واریانت‌های آن با موفقیت از انبار و سامانه حذف شدند.`
+        };
+    },
+
+    // Delete a specific batch from a variant
+    deleteBatch(batchId, { reason = 'MANUAL_DELETION', userId = 1 } = {}) {
+        const batch = db.prepare(`
+            SELECT ib.*, pv.sku, p.name_fa AS product_name_fa, p.name AS product_name
+            FROM inventory_batches ib
+            JOIN product_variants pv ON ib.product_variant_id = pv.id
+            JOIN products p ON pv.product_id = p.id
+            WHERE ib.id = ?
+        `).get(batchId);
+
+        if (!batch) {
+            throw new Error('سری ساخت (بچ) مورد نظر در انبار یافت نشد.');
+        }
+
+        if (batch.reserved_quantity > 0) {
+            throw new Error(`امکان حذف این سری ساخت وجود ندارد؛ ${batch.reserved_quantity} عدد از آن در سفارشات بیعانه رزرو شده است.`);
+        }
+
+        // Check if referenced in stock_transactions, stock_count_items, or testers
+        const hasTx = db.prepare(`SELECT COUNT(*) AS c FROM stock_transactions WHERE batch_id = ?`).get(batchId).c > 0;
+        const hasCounts = db.prepare(`SELECT COUNT(*) AS c FROM stock_count_items WHERE batch_id = ?`).get(batchId).c > 0;
+        const hasTesters = db.prepare(`SELECT COUNT(*) AS c FROM testers WHERE batch_id = ?`).get(batchId).c > 0;
+
+        const isReferenced = hasTx || hasCounts || hasTesters;
+
+        if (isReferenced) {
+            // Write down stock to 0
+            db.prepare(`UPDATE inventory_batches SET quantity = 0, reserved_quantity = 0 WHERE id = ?`).run(batchId);
+            return {
+                success: true,
+                mode: 'ZEROED',
+                message: `موجودی سری ساخت «${batch.batch_number}» با موفقیت از انبار تخلیه و صفر گردید.`
+            };
+        } else {
+            db.prepare(`DELETE FROM inventory_batches WHERE id = ?`).run(batchId);
+            return {
+                success: true,
+                mode: 'DELETED',
+                message: `سری ساخت «${batch.batch_number}» با موفقیت از انبار حذف شد.`
+            };
+        }
     }
 };
 
