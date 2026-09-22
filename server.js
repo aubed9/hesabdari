@@ -783,14 +783,30 @@ app.get('/api/crm/customers/:id', (req, res) => {
 app.post('/api/crm/customers', (req, res) => {
     try {
         const { fullName, mobile, email, birthDate, skinType, hairPreferences } = req.body;
+        if (!fullName || !fullName.trim()) {
+            return res.status(400).json({ success: false, error: 'نام و نام خانوادگی مشتری الزامی است.' });
+        }
+
+        const { validateIranianMobile } = require('./utils/textUtils');
+        const validation = validateIranianMobile(mobile);
+        if (!validation.valid) {
+            return res.status(400).json({ success: false, error: validation.message });
+        }
+        const cleanMobile = validation.mobile;
+
+        const existing = db.prepare(`SELECT id FROM customers WHERE mobile = ?`).get(cleanMobile);
+        if (existing) {
+            return res.status(400).json({ success: false, error: 'مشتری با این شماره موبایل قبلاً در سیستم ثبت شده است.' });
+        }
+
         const { parseJalaliInputToGregorian } = require('./utils/dateUtils');
         const finalBirth = birthDate ? (parseJalaliInputToGregorian(birthDate) || birthDate) : null;
         const refCode = 'REF-' + Math.floor(100000 + Math.random() * 900000);
         const result = db.prepare(`
             INSERT INTO customers (full_name, mobile, email, birth_date, skin_type, hair_preferences, referral_code)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(fullName, mobile, email || null, finalBirth, skinType || null, hairPreferences || null, refCode);
-        res.json({ success: true, data: { customerId: result.lastInsertRowid, referralCode: refCode } });
+        `).run(fullName.trim(), cleanMobile, email || null, finalBirth, skinType || null, hairPreferences || null, refCode);
+        res.json({ success: true, data: { customerId: result.lastInsertRowid, referralCode: refCode, mobile: cleanMobile } });
     } catch (err) {
         res.status(400).json({ success: false, error: err.message });
     }

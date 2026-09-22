@@ -1,6 +1,6 @@
 // CRM, Customer 360, Loyalty, RFM & Wallet Service
 const db = require('../db/database');
-const { normalizeIranianMobile, formatMobileForExcel, formatMobileWithoutZero } = require('../utils/textUtils');
+const { normalizeIranianMobile, formatMobileForExcel, formatMobileWithoutZero, validateIranianMobile } = require('../utils/textUtils');
 const { toJalaliDateString, toJalaliFriendly, getCurrentJalaliDate, parseJalaliInputToGregorian } = require('../utils/dateUtils');
 
 const crmService = {
@@ -267,7 +267,13 @@ const crmService = {
     // Create New Customer
     createCustomer({ fullName, mobile, email, nationalCode, birthDate, skinType, hairType, loyaltyTier = 'BRONZE', notes = '' }) {
         if (!fullName || !mobile) throw new Error('نام و شماره موبایل الزامی است');
-        const cleanMobile = mobile.trim();
+        
+        const validation = validateIranianMobile(mobile);
+        if (!validation.valid) {
+            throw new Error(validation.message);
+        }
+        const cleanMobile = validation.mobile;
+
         const existing = db.prepare(`SELECT id FROM customers WHERE mobile = ?`).get(cleanMobile);
         if (existing) throw new Error('مشتری با این شماره موبایل قبلاً ثبت شده است');
 
@@ -281,12 +287,23 @@ const crmService = {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 50, 0, ?, 1)
         `).run(custCode, fullName.trim(), cleanMobile, email || null, normalizedBirthDate, skinType || null, hairType || null, loyaltyTier, notes);
 
-        return { id: res.lastInsertRowid, customerCode: custCode };
+        return { id: res.lastInsertRowid, customerCode: custCode, mobile: cleanMobile };
     },
 
     // Update Customer
     updateCustomer(id, data) {
         const { fullName, mobile, email, birthDate, skinType, hairType, loyaltyTier, notes, loyaltyPoints } = data;
+        let cleanMobile = undefined;
+        if (mobile !== undefined && mobile !== null && mobile !== '') {
+            const validation = validateIranianMobile(mobile);
+            if (!validation.valid) {
+                throw new Error(validation.message);
+            }
+            cleanMobile = validation.mobile;
+            const existing = db.prepare(`SELECT id FROM customers WHERE mobile = ? AND id != ?`).get(cleanMobile, id);
+            if (existing) throw new Error('مشتری با این شماره موبایل قبلاً ثبت شده است');
+        }
+
         const normalizedBirthDate = birthDate ? (parseJalaliInputToGregorian(birthDate) || birthDate) : null;
         db.prepare(`
             UPDATE customers
@@ -300,7 +317,7 @@ const crmService = {
                 loyalty_points = COALESCE(?, loyalty_points),
                 notes = COALESCE(?, notes)
             WHERE id = ?
-        `).run(fullName, mobile, email, normalizedBirthDate, skinType, hairType, loyaltyTier, loyaltyPoints, notes, id);
+        `).run(fullName, cleanMobile !== undefined ? cleanMobile : null, email, normalizedBirthDate, skinType, hairType, loyaltyTier, loyaltyPoints, notes, id);
 
         return { success: true };
     },

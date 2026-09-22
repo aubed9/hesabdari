@@ -403,14 +403,23 @@ const pos = {
 
                     <!-- Quick Register Collapsible Form -->
                     <div id="quickCustForm" class="hidden p-3 bg-purple-50 rounded-xl border border-purple-200 space-y-2.5">
-                        <div class="font-bold text-purple-900 text-xs">ثبت سریع مشتری جدید در باشگاه:</div>
+                        <div class="flex items-center justify-between font-bold text-purple-900 text-xs">
+                            <span>ثبت سریع مشتری جدید در باشگاه:</span>
+                            <span id="qcMobileCount" class="text-[11px] font-mono font-bold text-slate-400">۰ / ۱۱ رقم</span>
+                        </div>
                         <div class="grid grid-cols-2 gap-2">
-                            <input type="text" id="qcName" placeholder="نام و نام خانوادگی *" class="p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold">
-                            <input type="text" id="qcMobile" placeholder="شماره همراه (۰۹...) *" class="p-2 bg-white border border-slate-200 rounded-lg text-xs font-mono">
+                            <input type="text" id="qcName" placeholder="نام و نام خانوادگی *" class="p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none focus:border-purple-600">
+                            <input type="tel" id="qcMobile" maxlength="11" placeholder="شماره همراه (۰۹۱۲۳۴۵۶۷۸۹) *" 
+                                   oninput="pos.handleQuickMobileInput(this)"
+                                   dir="ltr" class="p-2 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-left outline-none focus:border-purple-600">
+                        </div>
+                        <div id="qcMobileError" class="hidden p-2 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-[11px] font-bold flex items-center gap-1.5">
+                            <i data-lucide="alert-circle" class="w-3.5 h-3.5 shrink-0 text-rose-600"></i>
+                            <span id="qcMobileErrorText">شماره همراه باید دقیقاً ۱۱ رقم و با ۰۹ شروع شود.</span>
                         </div>
                         <div class="flex justify-end gap-2 pt-1">
-                            <button onclick="pos.toggleQuickCustomerForm()" class="px-3 py-1.5 text-slate-500 hover:bg-white rounded-lg">انصراف</button>
-                            <button onclick="pos.saveQuickCustomer()" class="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold">ذخیره و انتخاب در فاکتور</button>
+                            <button onclick="pos.toggleQuickCustomerForm()" class="px-3 py-1.5 text-slate-500 hover:bg-white rounded-lg cursor-pointer">انصراف</button>
+                            <button onclick="pos.saveQuickCustomer()" class="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold shadow-sm cursor-pointer">ذخیره و انتخاب در فاکتور</button>
                         </div>
                     </div>
 
@@ -494,14 +503,88 @@ const pos = {
         }
     },
 
-    async saveQuickCustomer() {
-        const fullName = document.getElementById('qcName')?.value.trim();
-        const mobile = document.getElementById('qcMobile')?.value.trim();
+    handleQuickMobileInput(inputEl) {
+        if (!inputEl) return;
+        let str = String(inputEl.value || '').trim();
+        const persianDigits = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
+        const arabicDigits  = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
+        for (let i = 0; i < 10; i++) {
+            str = str.replace(new RegExp(persianDigits[i], 'g'), String(i));
+            str = str.replace(new RegExp(arabicDigits[i], 'g'), String(i));
+        }
+        str = str.replace(/[^\d]/g, '');
+        if (str.startsWith('0098')) str = '0' + str.slice(4);
+        else if (str.startsWith('98') && str.length === 12) str = '0' + str.slice(2);
+        else if (str.length === 10 && str.startsWith('9')) str = '0' + str;
 
-        if (!fullName || !mobile) {
-            app.showNotification('لطفاً نام و شماره موبایل را وارد نمایید.', 'warning');
+        if (inputEl.value !== str && str.length <= 11) {
+            inputEl.value = str;
+        }
+
+        const countEl = document.getElementById('qcMobileCount');
+        const errEl = document.getElementById('qcMobileError');
+        if (countEl) countEl.textContent = `${str.length} / ۱۱ رقم`;
+
+        if (str.length === 11 && str.startsWith('09')) {
+            inputEl.classList.remove('border-rose-500', 'ring-2', 'ring-rose-200');
+            inputEl.classList.add('border-emerald-500');
+            if (errEl) errEl.classList.add('hidden');
+        } else if (str.length > 0 && !str.startsWith('09')) {
+            inputEl.classList.add('border-rose-500');
+            inputEl.classList.remove('border-emerald-500');
+        } else {
+            inputEl.classList.remove('border-emerald-500', 'border-rose-500');
+            if (errEl) errEl.classList.add('hidden');
+        }
+    },
+
+    async saveQuickCustomer() {
+        const nameEl = document.getElementById('qcName');
+        const mobileEl = document.getElementById('qcMobile');
+        const errEl = document.getElementById('qcMobileError');
+        const errText = document.getElementById('qcMobileErrorText');
+
+        const fullName = nameEl ? nameEl.value.trim() : '';
+        const rawMobile = mobileEl ? mobileEl.value.trim() : '';
+
+        if (!fullName) {
+            app.showNotification('لطفاً نام و نام خانوادگی مشتری را وارد نمایید.', 'warning');
+            nameEl?.focus();
             return;
         }
+
+        let mobile = (rawMobile || '')
+            .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
+            .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+            .replace(/[^\d]/g, '');
+        if (mobile.startsWith('0098')) mobile = '0' + mobile.slice(4);
+        else if (mobile.startsWith('98') && mobile.length === 12) mobile = '0' + mobile.slice(2);
+        else if (mobile.length === 10 && mobile.startsWith('9')) mobile = '0' + mobile;
+
+        if (mobileEl) mobileEl.value = mobile;
+
+        if (!mobile || !/^09\d{9}$/.test(mobile)) {
+            let msg = '⚠️ اخطار: فرمت شماره همراه نامعتبر است! شماره همراه باید دقیقاً ۱۱ رقم بوده و با ۰۹ شروع شود (مثال: ۰۹۱۲۳۴۵۶۷۸۹). لطفاً اصلاح نموده و سپس ثبت کنید.';
+            if (mobile.length !== 11) {
+                msg = `⚠️ اخطار: شماره تلفن وارد شده ${mobile.length} رقم است! شماره تلفن همراه باید دقیقاً ۱۱ رقم باشد (مثال: ۰۹۱۲۳۴۵۶۷۸۹).`;
+            } else if (!mobile.startsWith('09')) {
+                msg = '⚠️ اخطار: شماره تلفن همراه باید حتماً با ۰۹ آغاز شود (مثال: ۰۹۱۲۳۴۵۶۷۸۹).';
+            }
+
+            app.showNotification(msg, 'warning');
+            if (errEl) {
+                errEl.classList.remove('hidden');
+                if (errText) errText.textContent = msg;
+                lucide.createIcons();
+            }
+            mobileEl?.classList.add('border-rose-500', 'ring-2', 'ring-rose-200');
+            mobileEl?.focus();
+            return;
+        }
+
+        // Clear error styling if valid
+        mobileEl?.classList.remove('border-rose-500', 'ring-2', 'ring-rose-200');
+        if (errEl) errEl.classList.add('hidden');
 
         try {
             const res = await fetch('/api/crm/customers', {
@@ -511,7 +594,7 @@ const pos = {
             });
             const json = await res.json();
             if (json.success) {
-                app.showNotification(`مشتری «${fullName}» با موفقیت ثبت و انتخاب شد.`, 'success');
+                app.showNotification(`مشتری «${fullName}» با موفقیت در باشگاه ثبت و انتخاب شد.`, 'success');
                 const newCust = {
                     id: json.data.customerId,
                     full_name: fullName,
@@ -523,8 +606,18 @@ const pos = {
                 };
                 if (this.allCustomers) this.allCustomers.unshift(newCust);
                 this.selectCustomer(newCust);
+                this.toggleQuickCustomerForm();
             } else {
                 app.showNotification(json.error || 'خطا در ثبت مشتری', 'error');
+                if (json.error && (json.error.includes('شماره') || json.error.includes('تکراری'))) {
+                    if (errEl) {
+                        errEl.classList.remove('hidden');
+                        if (errText) errText.textContent = json.error;
+                        lucide.createIcons();
+                    }
+                    mobileEl?.classList.add('border-rose-500', 'ring-2', 'ring-rose-200');
+                    mobileEl?.focus();
+                }
             }
         } catch (e) {
             app.showNotification('خطای شبکه در ارتباط با سرور', 'error');

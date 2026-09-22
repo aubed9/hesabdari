@@ -62,10 +62,26 @@ function formatMobileWithoutZero(raw) {
     return mob.startsWith('0') ? mob.slice(1) : mob;
 }
 
+function validateIranianMobile(raw) {
+    if (!raw || !String(raw).trim()) {
+        return { valid: false, message: 'شماره تلفن همراه الزامی است.' };
+    }
+    const normalized = normalizeIranianMobile(raw);
+    if (!/^09\d{9}$/.test(normalized)) {
+        return {
+            valid: false,
+            normalized,
+            message: 'فرمت شماره تلفن همراه نامعتبر است. شماره همراه باید دقیقاً ۱۱ رقم بوده و با ۰۹ شروع شود (مثال: ۰۹۱۲۳۴۵۶۷۸۹).'
+        };
+    }
+    return { valid: true, mobile: normalized };
+}
+
 module.exports = {
     normalizePersian,
     roundMoney,
     normalizeIranianMobile,
     formatMobileForExcel,
-    formatMobileWithoutZero
+    formatMobileWithoutZero,
+    validateIranianMobile
 };

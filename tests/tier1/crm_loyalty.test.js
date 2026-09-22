@@ -128,4 +128,81 @@ describe('Tier 1: CRM, Customer 360, Wallet Liability & Loyalty Engine', () => {
         assert.ok(found);
         assert.equal(found.mobile, '09351234567');
     });
+
+    test('T1-CRM-7: Customer creation rejects invalid mobile numbers with clear warning message', () => {
+        // Less than 11 digits
+        assert.throws(() => {
+            crmService.createCustomer({
+                fullName: 'تست شماره کوتاه',
+                mobile: '0912123456'
+            });
+        }, /فرمت شماره تلفن همراه نامعتبر است/);
+
+        // More than 11 digits
+        assert.throws(() => {
+            crmService.createCustomer({
+                fullName: 'تست شماره طولانی',
+                mobile: '091212345678'
+            });
+        }, /فرمت شماره تلفن همراه نامعتبر است/);
+
+        // Does not start with 09
+        assert.throws(() => {
+            crmService.createCustomer({
+                fullName: 'تست پیش شماره نامعتبر',
+                mobile: '02188776655'
+            });
+        }, /فرمت شماره تلفن همراه نامعتبر است/);
+
+        // Non-digits/letters
+        assert.throws(() => {
+            crmService.createCustomer({
+                fullName: 'تست حروف در شماره',
+                mobile: '0912abc4567'
+            });
+        }, /فرمت شماره تلفن همراه نامعتبر است/);
+    });
+
+    test('T1-CRM-8: Customer creation accepts valid 11-digit numbers and normalizes Persian numerals', () => {
+        // Persian digits: ۰۹۱۹۱۱۱۴۴۵۵ -> 09191114455
+        const resPersian = crmService.createCustomer({
+            fullName: 'سارا احمدی (اعداد فارسی)',
+            mobile: '۰۹۱۹۱۱۱۴۴۵۵'
+        });
+        assert.ok(resPersian.id);
+        assert.equal(resPersian.mobile, '09191114455');
+
+        const savedCust = db.prepare(`SELECT mobile FROM customers WHERE id = ?`).get(resPersian.id);
+        assert.equal(savedCust.mobile, '09191114455');
+
+        // English digits: 09192223344
+        const resEnglish = crmService.createCustomer({
+            fullName: 'سارا احمدی (اعداد انگلیسی)',
+            mobile: '09192223344'
+        });
+        assert.ok(resEnglish.id);
+        assert.equal(resEnglish.mobile, '09192223344');
+    });
+
+    test('T1-CRM-9: Customer update validates mobile and rejects invalid formats', () => {
+        const cust = crmService.createCustomer({
+            fullName: 'مشتری جهت ویرایش',
+            mobile: '09187776655'
+        });
+
+        // Updating with invalid mobile should throw
+        assert.throws(() => {
+            crmService.updateCustomer(cust.id, {
+                mobile: '0918'
+            });
+        }, /فرمت شماره تلفن همراه نامعتبر است/);
+
+        // Updating with valid Persian mobile should succeed and normalize
+        crmService.updateCustomer(cust.id, {
+            mobile: '۰۹۱۸۹۹۹۰۰۱۱'
+        });
+
+        const updated = db.prepare(`SELECT mobile FROM customers WHERE id = ?`).get(cust.id);
+        assert.equal(updated.mobile, '09189990011');
+    });
 });

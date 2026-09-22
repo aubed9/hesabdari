@@ -683,27 +683,114 @@ const crm = {
         }
     },
 
+    // Helper: Normalize Iranian Mobile Number string
+    normalizeMobileString(raw) {
+        if (!raw) return '';
+        let str = String(raw).trim();
+        const persianDigits = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
+        const arabicDigits  = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
+        for (let i = 0; i < 10; i++) {
+            str = str.replace(new RegExp(persianDigits[i], 'g'), String(i));
+            str = str.replace(new RegExp(arabicDigits[i], 'g'), String(i));
+        }
+        str = str.replace(/[^\d]/g, '');
+        if (str.startsWith('0098')) {
+            str = '0' + str.slice(4);
+        } else if (str.startsWith('98') && str.length === 12) {
+            str = '0' + str.slice(2);
+        } else if (str.length === 10 && str.startsWith('9')) {
+            str = '0' + str;
+        }
+        return str;
+    },
+
+    // Live mobile input feedback handler
+    handleMobileInput(inputEl, counterId, errorId) {
+        if (!inputEl) return;
+        const normalized = this.normalizeMobileString(inputEl.value);
+        if (inputEl.value !== normalized && normalized.length <= 11) {
+            inputEl.value = normalized;
+        }
+        const val = inputEl.value;
+        const countEl = counterId ? document.getElementById(counterId) : null;
+        const errEl = errorId ? document.getElementById(errorId) : null;
+
+        if (countEl) {
+            countEl.textContent = `${val.length} / ۱۱ رقم`;
+            if (val.length === 11 && val.startsWith('09')) {
+                countEl.className = 'text-[11px] font-mono font-black text-emerald-600';
+            } else if (val.length > 0 && !val.startsWith('09')) {
+                countEl.className = 'text-[11px] font-mono font-black text-rose-600';
+            } else {
+                countEl.className = 'text-[11px] font-mono font-bold text-slate-400';
+            }
+        }
+
+        if (val.length === 11) {
+            if (/^09\d{9}$/.test(val)) {
+                inputEl.classList.remove('border-rose-500', 'ring-2', 'ring-rose-200');
+                inputEl.classList.add('border-emerald-500', 'ring-2', 'ring-emerald-200');
+                if (errEl) errEl.classList.add('hidden');
+            } else {
+                inputEl.classList.add('border-rose-500', 'ring-2', 'ring-rose-200');
+                inputEl.classList.remove('border-emerald-500', 'ring-2', 'ring-emerald-200');
+                if (errEl) {
+                    errEl.classList.remove('hidden');
+                    const errText = errEl.querySelector('span');
+                    if (errText) errText.textContent = 'شماره تلفن ۱۱ رقمی باید حتماً با ۰۹ شروع شود (مثال: ۰۹۱۲۳۴۵۶۷۸۹).';
+                }
+            }
+        } else {
+            inputEl.classList.remove('border-emerald-500', 'ring-2', 'ring-emerald-200');
+            if (val.length > 0 && !val.startsWith('09') && (val.length >= 2 || !val.startsWith('0'))) {
+                inputEl.classList.add('border-rose-500', 'ring-2', 'ring-rose-200');
+                if (errEl) {
+                    errEl.classList.remove('hidden');
+                    const errText = errEl.querySelector('span');
+                    if (errText) errText.textContent = 'شماره تلفن همراه باید با ۰۹ آغاز شود.';
+                }
+            } else {
+                inputEl.classList.remove('border-rose-500', 'ring-2', 'ring-rose-200');
+                if (errEl) errEl.classList.add('hidden');
+            }
+        }
+    },
+
     // New Customer Modal
     openNewCustomerModal() {
         app.openModal(`
-            <h3 class="text-base font-bold text-slate-900 mb-2">ثبت مشتری جدید فروشگاه</h3>
+            <h3 class="text-base font-bold text-slate-900 mb-1 flex items-center gap-2">
+                <i data-lucide="user-plus" class="w-5 h-5 text-purple-600"></i>
+                <span>ثبت مشتری جدید فروشگاه</span>
+            </h3>
             <p class="text-xs text-slate-500 mb-4">اطلاعات هویتی و ترجیحات زیبایی مشتری را وارد نمایید:</p>
 
             <div class="space-y-4 text-xs">
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1">نام و نام خانوادگی</label>
-                    <input type="text" id="newCustName" placeholder="مثلاً: هانیه سلیمانی" class="w-full p-2.5 border border-slate-200 rounded-xl font-medium">
+                    <label class="block font-bold text-slate-700 mb-1">نام و نام خانوادگی <span class="text-rose-500">*</span></label>
+                    <input type="text" id="newCustName" placeholder="مثلاً: هانیه سلیمانی" class="w-full p-2.5 border border-slate-200 rounded-xl font-medium focus:border-purple-600 outline-none transition">
                 </div>
 
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1">شماره همراه</label>
-                    <input type="tel" id="newCustMobile" placeholder="0912..." class="w-full p-2.5 border border-slate-200 rounded-xl font-mono">
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block font-bold text-slate-700">شماره تلفن همراه <span class="text-rose-500">*</span></label>
+                        <span id="newCustMobileCount" class="text-[11px] font-mono font-bold text-slate-400">۰ / ۱۱ رقم</span>
+                    </div>
+                    <input type="tel" id="newCustMobile" maxlength="11" placeholder="۰۹۱۲۳۴۵۶۷۸۹" dir="ltr" 
+                           oninput="crm.handleMobileInput(this, 'newCustMobileCount', 'newCustMobileError')"
+                           class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-left tracking-wider font-bold focus:bg-white focus:border-purple-600 outline-none transition">
+                    
+                    <!-- Inline Warning / Error Container -->
+                    <div id="newCustMobileError" class="hidden mt-1.5 p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-bold flex items-center gap-2">
+                        <i data-lucide="alert-triangle" class="w-4 h-4 shrink-0 text-rose-600"></i>
+                        <span id="newCustMobileErrorText">فرمت شماره تلفن نامعتبر است! شماره همراه باید دقیقاً ۱۱ رقم بوده و با ۰۹ شروع شود (مثال: ۰۹۱۲۳۴۵۶۷۸۹).</span>
+                    </div>
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="block font-bold text-slate-700 mb-1">نوع پوست</label>
-                        <select id="newCustSkin" class="w-full p-2.5 border border-slate-200 rounded-xl">
+                        <select id="newCustSkin" class="w-full p-2.5 border border-slate-200 rounded-xl bg-white">
                             <option value="چرب و مستعد جوش">چرب و مستعد جوش</option>
                             <option value="خشک و دهیدراته">خشک و دهیدراته</option>
                             <option value="مختلط و حساس">مختلط و حساس</option>
@@ -722,27 +809,73 @@ const crm = {
                     <input type="text" id="newCustHair" placeholder="مثلاً: رنگ شده و کراتینه" class="w-full p-2.5 border border-slate-200 rounded-xl">
                 </div>
 
-                <div class="flex justify-end gap-2 pt-2">
-                    <button onclick="app.closeModal()" class="px-4 py-2 text-slate-600">انصراف</button>
-                    <button onclick="crm.submitNewCustomer()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold px-5 py-2.5 rounded-xl transition">
+                <div class="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                    <button onclick="app.closeModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl transition">انصراف</button>
+                    <button onclick="crm.submitNewCustomer()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold px-5 py-2.5 rounded-xl shadow-md transition cursor-pointer">
                         عضویت در باشگاه و ذخیره
                     </button>
                 </div>
             </div>
         `);
+        lucide.createIcons();
+        setTimeout(() => document.getElementById('newCustName')?.focus(), 150);
     },
 
     async submitNewCustomer() {
-        const fullName = document.getElementById('newCustName').value;
-        const mobile = document.getElementById('newCustMobile').value;
-        const skinType = document.getElementById('newCustSkin').value;
-        const birthDate = document.getElementById('newCustBirth').value;
-        const hairPreferences = document.getElementById('newCustHair').value;
+        const nameEl = document.getElementById('newCustName');
+        const mobileEl = document.getElementById('newCustMobile');
+        const errEl = document.getElementById('newCustMobileError');
+        const fullName = nameEl ? nameEl.value.trim() : '';
+        const rawMobile = mobileEl ? mobileEl.value.trim() : '';
+        const skinType = document.getElementById('newCustSkin')?.value;
+        const birthDate = document.getElementById('newCustBirth')?.value;
+        const hairPreferences = document.getElementById('newCustHair')?.value;
 
-        if (!fullName || !mobile) {
-            app.showNotification('نام و شماره همراه الزامی است', 'warning');
+        if (!fullName) {
+            app.showNotification('لطفاً نام و نام خانوادگی مشتری را وارد نمایید.', 'warning');
+            nameEl?.focus();
             return;
         }
+
+        const mobile = this.normalizeMobileString(rawMobile);
+        if (mobileEl) mobileEl.value = mobile;
+
+        if (!mobile) {
+            app.showNotification('⚠️ لطفاً شماره تلفن همراه مشتری را وارد نمایید.', 'warning');
+            if (errEl) {
+                errEl.classList.remove('hidden');
+                const errText = document.getElementById('newCustMobileErrorText');
+                if (errText) errText.textContent = 'وارد کردن شماره همراه مشتری الزامی است.';
+            }
+            mobileEl?.classList.add('border-rose-500', 'ring-2', 'ring-rose-200');
+            mobileEl?.focus();
+            return;
+        }
+
+        // Strict 11-digit Iranian mobile check
+        if (!/^09\d{9}$/.test(mobile)) {
+            let msg = '⚠️ اخطار: فرمت شماره تلفن همراه نامعتبر است! شماره همراه باید دقیقاً ۱۱ رقم بوده و با ۰۹ شروع شود (مثال: ۰۹۱۲۳۴۵۶۷۸۹). لطفاً شماره را اصلاح کرده و سپس ذخیره نمایید.';
+            if (mobile.length !== 11) {
+                msg = `⚠️ اخطار: شماره تلفن وارد شده ${mobile.length} رقم است! شماره تلفن همراه باید دقیقاً ۱۱ رقم باشد (مثال: ۰۹۱۲۳۴۵۶۷۸۹). لطفاً اصلاح نمایید.`;
+            } else if (!mobile.startsWith('09')) {
+                msg = '⚠️ اخطار: شماره تلفن همراه باید حتماً با ۰۹ آغاز شود (مثال: ۰۹۱۲۳۴۵۶۷۸۹). لطفاً اصلاح نمایید.';
+            }
+
+            app.showNotification(msg, 'warning');
+            if (errEl) {
+                errEl.classList.remove('hidden');
+                const errText = document.getElementById('newCustMobileErrorText');
+                if (errText) errText.textContent = msg;
+                lucide.createIcons();
+            }
+            mobileEl?.classList.add('border-rose-500', 'ring-2', 'ring-rose-200');
+            mobileEl?.focus();
+            return;
+        }
+
+        // Clear error styling if valid
+        mobileEl?.classList.remove('border-rose-500', 'ring-2', 'ring-rose-200');
+        if (errEl) errEl.classList.add('hidden');
 
         try {
             const res = await fetch('/api/crm/customers', {
@@ -757,6 +890,16 @@ const crm = {
                 this.loadCustomers();
             } else {
                 app.showNotification(json.error || 'شماره همراه تکراری است', 'error');
+                if (json.error && (json.error.includes('شماره') || json.error.includes('تکراری'))) {
+                    if (errEl) {
+                        errEl.classList.remove('hidden');
+                        const errText = document.getElementById('newCustMobileErrorText');
+                        if (errText) errText.textContent = json.error;
+                        lucide.createIcons();
+                    }
+                    mobileEl?.classList.add('border-rose-500', 'ring-2', 'ring-rose-200');
+                    mobileEl?.focus();
+                }
             }
         } catch (e) {
             app.showNotification('خطا در ثبت مشتری', 'error');
@@ -774,8 +917,10 @@ const crm = {
                         <input type="text" id="ecName" value="${c.full_name}" class="w-full p-2.5 border border-slate-200 rounded-xl font-bold">
                     </div>
                     <div>
-                        <label class="block font-bold text-slate-700 mb-1">شماره همراه</label>
-                        <input type="text" id="ecMobile" value="${c.mobile}" class="w-full p-2.5 border border-slate-200 rounded-xl font-mono">
+                        <label class="block font-bold text-slate-700 mb-1">شماره همراه (۱۱ رقم)</label>
+                        <input type="tel" id="ecMobile" value="${c.mobile}" maxlength="11" dir="ltr" 
+                               oninput="crm.handleMobileInput(this, null, null)"
+                               class="w-full p-2.5 border border-slate-200 rounded-xl font-mono text-left font-bold">
                     </div>
                 </div>
 
@@ -814,15 +959,33 @@ const crm = {
                 </div>
             </div>
         `);
+        lucide.createIcons();
     },
 
     async submitEditCustomer(id) {
         const fullName = document.getElementById('ecName')?.value.trim();
-        const mobile = document.getElementById('ecMobile')?.value.trim();
+        const rawMobile = document.getElementById('ecMobile')?.value.trim();
         const loyaltyTier = document.getElementById('ecTier')?.value;
         const loyaltyPoints = Number(document.getElementById('ecPoints')?.value) || 0;
         const skinType = document.getElementById('ecSkin')?.value.trim();
         const hairType = document.getElementById('ecHair')?.value.trim();
+
+        if (!fullName) {
+            app.showNotification('نام مشتری الزامی است', 'warning');
+            return;
+        }
+
+        let mobile = undefined;
+        if (rawMobile) {
+            mobile = this.normalizeMobileString(rawMobile);
+            if (!/^09\d{9}$/.test(mobile)) {
+                app.showNotification('⚠️ اخطار: فرمت شماره همراه نامعتبر است! شماره همراه باید دقیقاً ۱۱ رقم بوده و با ۰۹ آغاز شود (مثال: ۰۹۱۲۳۴۵۶۷۸۹). لطفاً اصلاح نمایید.', 'warning');
+                const mobEl = document.getElementById('ecMobile');
+                mobEl?.classList.add('border-rose-500', 'ring-2', 'ring-rose-200');
+                mobEl?.focus();
+                return;
+            }
+        }
 
         try {
             const res = await fetch(`/api/crm/customers/${id}`, {
@@ -835,6 +998,8 @@ const crm = {
                 app.showNotification('مشخصات مشتری به‌روزرسانی شد.', 'success');
                 app.closeModal();
                 await this.loadCustomers();
+            } else {
+                app.showNotification(json.error || 'خطا در به‌روزرسانی مشتری', 'error');
             }
         } catch (e) {
             app.showNotification('خطا در به‌روزرسانی مشتری', 'error');
