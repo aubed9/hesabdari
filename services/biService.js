@@ -1,32 +1,43 @@
 // Business Intelligence (BI), Analytics, KPIs & Insight Engine
 const db = require('../db/database');
+const inventoryService = require('./inventoryService');
+const { formatMobileForExcel } = require('../utils/textUtils');
+const { toJalaliDateString } = require('../utils/dateUtils');
 
 const biService = {
     // Executive Control Center Overview
     getExecutiveDashboard(filterRange = 'TODAY', customStart = null, customEnd = null) {
         let dateCondition = "DATE(created_at) = DATE('now')";
+        let customerDateCondition = "(DATE(created_at) = DATE('now') OR DATE(membership_date) = DATE('now'))";
         let periodLabel = 'امروز';
 
         if (filterRange === 'YESTERDAY') {
             dateCondition = "DATE(created_at) = DATE('now', '-1 day')";
+            customerDateCondition = "(DATE(created_at) = DATE('now', '-1 day') OR DATE(membership_date) = DATE('now', '-1 day'))";
             periodLabel = 'دیروز';
         } else if (filterRange === 'WEEK') {
             dateCondition = "created_at >= DATETIME('now', '-7 days')";
+            customerDateCondition = "(created_at >= DATETIME('now', '-7 days') OR membership_date >= DATE('now', '-7 days'))";
             periodLabel = '۷ روز گذشته';
         } else if (filterRange === 'MONTH' || filterRange === 'DAYS_30') {
             dateCondition = "created_at >= DATETIME('now', '-30 days')";
+            customerDateCondition = "(created_at >= DATETIME('now', '-30 days') OR membership_date >= DATE('now', '-30 days'))";
             periodLabel = '۳۰ روز گذشته';
         } else if (filterRange === 'SEASON' || filterRange === 'DAYS_90') {
             dateCondition = "created_at >= DATETIME('now', '-90 days')";
+            customerDateCondition = "(created_at >= DATETIME('now', '-90 days') OR membership_date >= DATE('now', '-90 days'))";
             periodLabel = 'فصل جاری (۹۰ روز)';
         } else if (filterRange === 'YEAR') {
             dateCondition = "STRFTIME('%Y', created_at) = STRFTIME('%Y', 'now')";
+            customerDateCondition = "(STRFTIME('%Y', created_at) = STRFTIME('%Y', 'now') OR STRFTIME('%Y', membership_date) = STRFTIME('%Y', 'now'))";
             periodLabel = 'سال جاری';
         } else if (filterRange === 'ALL') {
             dateCondition = "1=1";
+            customerDateCondition = "1=1";
             periodLabel = 'کل دوره (۹۰ روز)';
         } else if (filterRange === 'CUSTOM' && customStart && customEnd) {
             dateCondition = `DATE(created_at) BETWEEN '${customStart}' AND '${customEnd}'`;
+            customerDateCondition = `(DATE(created_at) BETWEEN '${customStart}' AND '${customEnd}' OR DATE(membership_date) BETWEEN '${customStart}' AND '${customEnd}')`;
             periodLabel = `از ${customStart} تا ${customEnd}`;
         }
 
@@ -127,7 +138,10 @@ const biService = {
             SELECT 
                 COUNT(id) AS total_customers,
                 COUNT(CASE WHEN loyalty_tier = 'VIP' THEN 1 END) AS vip_customers,
-                COUNT(CASE WHEN rfm_segment = 'At Risk' THEN 1 END) AS at_risk_customers
+                COUNT(CASE WHEN rfm_segment = 'At Risk' THEN 1 END) AS at_risk_customers,
+                COUNT(CASE WHEN DATE(created_at) = DATE('now') OR DATE(membership_date) = DATE('now') THEN 1 END) AS new_customers_today,
+                COUNT(CASE WHEN STRFTIME('%Y-%m', created_at) = STRFTIME('%Y-%m', 'now') OR STRFTIME('%Y-%m', membership_date) = STRFTIME('%Y-%m', 'now') THEN 1 END) AS new_customers_month,
+                COUNT(CASE WHEN ${customerDateCondition} THEN 1 END) AS new_customers_period
             FROM customers
             WHERE is_active = 1
         `).get();
@@ -139,21 +153,24 @@ const biService = {
                 cogs: periodStats.cogs,
                 grossProfit: grossProfitPeriod,
                 invoicesCount: periodStats.invoices_count,
-                averageOrderValue: Math.round(periodStats.aov)
+                averageOrderValue: Math.round(periodStats.aov),
+                newCustomers: customerStats.new_customers_period
             },
             today: {
                 sales: todayStats.sales_today,
                 cogs: todayStats.cogs_today,
                 grossProfit: grossProfitToday,
                 invoicesCount: todayStats.invoices_count,
-                averageOrderValue: Math.round(todayStats.aov_today)
+                averageOrderValue: Math.round(todayStats.aov_today),
+                newCustomers: customerStats.new_customers_today
             },
             month: {
                 sales: monthStats.sales_month,
                 cogs: monthStats.cogs_month,
                 grossProfit: grossProfitMonth,
                 invoicesCount: monthStats.invoices_count,
-                averageOrderValue: Math.round(monthStats.aov_month)
+                averageOrderValue: Math.round(monthStats.aov_month),
+                newCustomers: customerStats.new_customers_month
             },
             inventory: {
                 totalCostValue: invValuation.total_cost_value,
@@ -172,6 +189,201 @@ const biService = {
             },
             customers: customerStats
         };
+    },
+
+    // Comprehensive Executive Dashboard Excel CSV Export (با مشخصات فارسی، کالاهای نیازمند سفارش و فاکتورها)
+    generateExecutiveDashboardExcelCsv(filterRange = 'TODAY', customStart = null, customEnd = null) {
+        const dashboard = this.getExecutiveDashboard(filterRange, customStart, customEnd);
+        const reorderSuggestions = inventoryService.getReorderSuggestions();
+
+        let orderDateCond = "DATE(o.created_at) = DATE('now')";
+        if (filterRange === 'YESTERDAY') {
+            orderDateCond = "DATE(o.created_at) = DATE('now', '-1 day')";
+        } else if (filterRange === 'WEEK') {
+            orderDateCond = "o.created_at >= DATETIME('now', '-7 days')";
+        } else if (filterRange === 'MONTH' || filterRange === 'DAYS_30') {
+            orderDateCond = "o.created_at >= DATETIME('now', '-30 days')";
+        } else if (filterRange === 'SEASON' || filterRange === 'DAYS_90') {
+            orderDateCond = "o.created_at >= DATETIME('now', '-90 days')";
+        } else if (filterRange === 'YEAR') {
+            orderDateCond = "STRFTIME('%Y', o.created_at) = STRFTIME('%Y', 'now')";
+        } else if (filterRange === 'ALL') {
+            orderDateCond = "1=1";
+        } else if (filterRange === 'CUSTOM' && customStart && customEnd) {
+            orderDateCond = `DATE(o.created_at) BETWEEN '${customStart}' AND '${customEnd}'`;
+        }
+
+        const orders = db.prepare(`
+            SELECT 
+                o.id,
+                o.order_number,
+                o.created_at,
+                COALESCE(c.full_name, 'مشتری گذری') AS customer_name,
+                COALESCE(c.mobile, '-') AS customer_mobile,
+                o.channel,
+                o.subtotal,
+                o.discount_amount,
+                o.total_amount,
+                o.total_cost,
+                (o.total_amount - o.total_cost) AS gross_profit,
+                (
+                    SELECT GROUP_CONCAT(DISTINCT p.payment_method)
+                    FROM payments p
+                    WHERE p.order_id = o.id
+                ) AS payment_methods,
+                o.status
+            FROM orders o
+            LEFT JOIN customers c ON o.customer_id = c.id
+            WHERE o.status = 'COMPLETED' AND ${orderDateCond}
+            ORDER BY o.id DESC
+        `).all();
+
+        const escapeCsv = (val) => {
+            if (val === null || val === undefined) return '""';
+            const s = String(val);
+            if (s.startsWith('="')) return s;
+            return `"${s.replace(/"/g, '""')}"`;
+        };
+
+        const channelMap = {
+            'STORE_POS': 'فروشگاه فیزیکی (POS)',
+            'WEBSITE': 'فروشگاه اینترنتی',
+            'INSTAGRAM': 'سفارش دایرکت اینستاگرام',
+            'WHATSAPP': 'سفارش واتساپ',
+            'MARKETPLACE': 'مارکت‌پلیس'
+        };
+
+        const formatPaymentMethods = (methodsStr) => {
+            if (!methodsStr) return 'نقدی / تسویه';
+            const parts = methodsStr.split(',');
+            return parts.map(m => {
+                if (m === 'CASH') return 'نقدی';
+                if (m === 'CARD') return 'کارتخوان (POS)';
+                if (m === 'WALLET') return 'کیف پول';
+                if (m === 'CHEQUE') return 'چک';
+                if (m === 'ONLINE') return 'درگاه آنلاین';
+                return m;
+            }).join(' + ');
+        };
+
+        const urgencyMap = {
+            'CRITICAL': 'بحرانی (اتمام موجودی)',
+            'HIGH': 'فوری (زیر ذخیره احتیاطی)',
+            'MEDIUM': 'متوسط (نقطه سفارش)'
+        };
+
+        const todayIso = new Date().toISOString().slice(0, 10);
+        const todayJalali = toJalaliDateString(todayIso);
+
+        const lines = [];
+
+        // UTF-8 BOM Header Banner
+        lines.push(`\uFEFF"=== گزارش جامع مدیریتی و داشبورد اجرایی فروشگاه آرایشی و بهداشتی ==="`);
+        lines.push(`"بازه گزارش:",${escapeCsv(dashboard.period.label)},"تاریخ صدور (شمسی):",${escapeCsv(todayJalali)},"تاریخ میلادی:",${escapeCsv(todayIso)}`);
+        lines.push('');
+
+        // Section 1: Executive KPIs
+        lines.push('"================ بخش ۱: شاخص‌های کلیدی عملکرد اجرایی (KPIs) ================"');
+        lines.push('"ردیف","عنوان شاخص","مقدار","واحد","توضیحات و جزئیات"');
+
+        const kpiRows = [
+            [1, 'بازه زمانی گزارش', dashboard.period.label, '-', 'بازه انتخاب شده توسط مدیریت'],
+            [2, 'فروش دوره منتخب', Math.round(dashboard.period.sales), 'تومان', 'مجموع فروش خالص فاکتورهای دوره'],
+            [3, 'بهای تمام شده کالای فروش رفته (COGS)', Math.round(dashboard.period.cogs), 'تومان', 'هزینه خرید کالاهای فروخته شده در دوره'],
+            [4, 'سود ناخالص دوره', Math.round(dashboard.period.grossProfit), 'تومان', `حاشیه سود ناخالص: ${dashboard.period.sales > 0 ? Math.round((dashboard.period.grossProfit / dashboard.period.sales) * 100) : 0}٪`],
+            [5, 'تعداد کل فاکتورهای دوره', dashboard.period.invoicesCount, 'فقره', 'تعداد سفارش‌های موفق ثبت شده'],
+            [6, 'میانگین ارزش فاکتور (AOV)', dashboard.period.averageOrderValue, 'تومان', 'میانگین مبلغ هر سبد خرید'],
+            [7, 'تعداد مشتری جدید ثبت‌شده در این دوره', dashboard.customers.new_customers_period, 'نفر', 'عضویت‌های جدید ثبت شده در بازه انتخابی'],
+            [8, 'تعداد مشتری جدید ثبت‌شده امروز', dashboard.customers.new_customers_today, 'نفر', 'عضویت‌های جدید امروز'],
+            [9, 'تعداد مشتری جدید ثبت‌شده این ماه', dashboard.customers.new_customers_month, 'نفر', 'عضویت‌های جدید در ۳۰ روز گذشته'],
+            [10, 'کل اعضای فعال باشگاه مشتریان', dashboard.customers.total_customers, 'نفر', 'مشتریان فعال ثبت شده در CRM'],
+            [11, 'مشتریان طلایی و VIP', dashboard.customers.vip_customers, 'نفر', 'مشتریان وفادار با بالاترین سبد خرید'],
+            [12, 'مشتریان در خطر ریزش (RFM)', dashboard.customers.at_risk_customers, 'نفر', 'بیش از ۶۰ روز بدون خرید (نیازمند پیگیری)'],
+            [13, 'فروش امروز', Math.round(dashboard.today.sales), 'تومان', `${dashboard.today.invoicesCount} فاکتور صادر شده امروز`],
+            [14, 'سود ناخالص امروز', Math.round(dashboard.today.grossProfit), 'تومان', 'سود عملیاتی امروز'],
+            [15, 'فروش ماه جاری', Math.round(dashboard.month.sales), 'تومان', `${dashboard.month.invoicesCount} فاکتور صادر شده در ماه`],
+            [16, 'سود ناخالص ماه جاری', Math.round(dashboard.month.grossProfit), 'تومان', 'سود ناخالص عملیاتی ۳۰ روزه'],
+            [17, 'ارزش ریالی سرمایه انبار', Math.round(dashboard.inventory.totalCostValue), 'تومان', 'ارزش کل موجودی بر مبنای قیمت خرید'],
+            [18, 'کل تعداد واحدهای کالایی در انبار', dashboard.inventory.totalUnits, 'عدد', 'موجودی کالایی انبار'],
+            [19, 'تعداد اقلام زیر نقطه سفارش (کسری انبار)', dashboard.inventory.lowStockCount, 'قلم کالا', 'نیازمند صدور سفارش خرید فوری'],
+            [20, 'کالاهای نزدیک انقضا (زیر ۶۰ روز)', dashboard.inventory.nearExpiryUnits, 'عدد', `${dashboard.inventory.nearExpiryBatches} بچ به ارزش ${Math.round(dashboard.inventory.nearExpiryValue)} تومان`],
+            [21, 'کل نقدینگی در دسترس (بانک + صندوق)', Math.round(dashboard.finances.totalLiquidity), 'تومان', 'نقدینگی کل فروشگاه'],
+            [22, 'موجودی نقد صندوق', Math.round(dashboard.finances.cashBalance), 'تومان', 'موجودی فیزیکی صندوق'],
+            [23, 'موجودی حساب‌های بانکی', Math.round(dashboard.finances.bankBalance), 'تومان', 'حساب‌های کارتخوان و بانک‌ها'],
+            [24, 'اسناد و چک‌های دریافتنی (مطالبات)', Math.round(dashboard.finances.accountsReceivable), 'تومان', 'چک‌های وصول‌نشده دریافتی'],
+            [25, 'اسناد و چک‌های پرداختنی (بدهی تأمین‌کنندگان)', Math.round(dashboard.finances.accountsPayable), 'تومان', 'چک‌های پرداختی سررسیددار']
+        ];
+
+        kpiRows.forEach(r => {
+            lines.push([r[0], escapeCsv(r[1]), r[2], escapeCsv(r[3]), escapeCsv(r[4])].join(','));
+        });
+
+        lines.push('');
+
+        // Section 2: Reorder & Shortage Items (کالاهای نیازمند سفارش و کسری موجودی)
+        lines.push('"================ بخش ۲: لیست کالاهای نیازمند سفارش خرید و کسری موجودی ================"');
+        lines.push('"ردیف","نام کالا","برند","شید / رنگ","بارکد","کد کالا (SKU)","موجودی فعلی","ذخیره اطمینان","نقطه سفارش","کسری / تعداد سفارش پیشنهادی","قیمت خرید واحد (تومان)","برآورد کل هزینه خرید (تومان)","فروش روزانه (واحد)","زمان تحویل تأمین‌کننده (روز)","تأمین‌کننده","سطح فوریت"');
+
+        if (reorderSuggestions.length === 0) {
+            lines.push('"1","تمامی کالاها در سطح موجودی مطلوب قرار دارند و کسری انبار گزارش نشده است","-","-","-","-",0,0,0,0,0,0,0,0,"-","عادی"');
+        } else {
+            reorderSuggestions.forEach((item, idx) => {
+                lines.push([
+                    idx + 1,
+                    escapeCsv(item.productName),
+                    escapeCsv(item.brandName),
+                    escapeCsv(item.shade || '-'),
+                    escapeCsv(item.barcode || item.sku),
+                    escapeCsv(item.sku),
+                    item.currentStock,
+                    item.safetyStock,
+                    item.reorderPoint,
+                    item.suggestedQuantity,
+                    Math.round(item.purchasePrice || 0),
+                    Math.round(item.estimatedCost || 0),
+                    item.dailySales,
+                    item.leadTimeDays,
+                    escapeCsv(item.supplierName || 'تأمین‌کننده پیش‌فرض'),
+                    escapeCsv(urgencyMap[item.urgency] || item.urgency)
+                ].join(','));
+            });
+        }
+
+        lines.push('');
+
+        // Section 3: Period Invoices Detail
+        lines.push('"================ بخش ۳: جزئیات فاکتورهای فروش دوره منتخب ================"');
+        lines.push('"ردیف","شماره فاکتور","تاریخ ثبت (شمسی)","تاریخ و زمان میلادی","نام مشتری","شماره تلفن همراه","کانال فروش","مبلغ ناخالص (تومان)","تخفیف (تومان)","مبلغ خالص فاکتور (تومان)","بهای تمام شده (COGS)","سود ناخالص فاکتور (تومان)","روش پرداخت","وضعیت فاکتور"');
+
+        if (orders.length === 0) {
+            lines.push('"1","هیچ فاکتوری در این بازه زمانی یافت نشد","-","-","-","-","-",0,0,0,0,0,"-","-"');
+        } else {
+            orders.forEach((o, idx) => {
+                const shamsiDate = toJalaliDateString(o.created_at);
+                const excelPhone = formatMobileForExcel(o.customer_mobile);
+                const channelName = channelMap[o.channel] || o.channel;
+                const paymentMethodName = formatPaymentMethods(o.payment_methods);
+
+                lines.push([
+                    idx + 1,
+                    escapeCsv(o.order_number),
+                    escapeCsv(shamsiDate),
+                    escapeCsv(o.created_at),
+                    escapeCsv(o.customer_name),
+                    excelPhone,
+                    escapeCsv(channelName),
+                    Math.round(o.subtotal),
+                    Math.round(o.discount_amount),
+                    Math.round(o.total_amount),
+                    Math.round(o.total_cost),
+                    Math.round(o.gross_profit),
+                    escapeCsv(paymentMethodName),
+                    escapeCsv(o.status === 'COMPLETED' ? 'تکمیل شده' : o.status)
+                ].join(','));
+            });
+        }
+
+        return lines.join('\r\n');
     },
 
     // Daily Sales & Profit Trend (Last 14 days)

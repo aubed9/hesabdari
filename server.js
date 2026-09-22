@@ -269,6 +269,23 @@ app.get('/api/dashboard/overview', (req, res) => {
     }
 });
 
+// Executive Dashboard Comprehensive Persian Excel CSV Export
+app.get('/api/dashboard/export/excel', (req, res) => {
+    try {
+        const { range, start, end } = req.query;
+        const csv = biService.generateExecutiveDashboardExcelCsv(range || 'TODAY', start, end);
+        const timestamp = new Date().toISOString().slice(0, 10);
+        const asciiFallback = `executive_dashboard_${(range || 'report').toLowerCase()}_${timestamp}.csv`;
+        const encodedFilename = encodeURIComponent(`گزارش_جامع_داشبورد_مدیریتی_${range || 'دوره'}_${timestamp}.csv`);
+
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedFilename}`);
+        res.send(csv);
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 app.get('/api/dashboard/sales-trend', (req, res) => {
     try {
         const data = biService.getSalesTrend();
@@ -1300,10 +1317,14 @@ app.get('/api/export/:entity', (req, res) => {
         let filename = `${entity}_export.csv`;
 
         if (entity === 'orders') {
-            rows = db.prepare(`
-                SELECT id, order_number, order_type, channel, subtotal, discount_amount, total_amount, total_cost, status, created_at
-                FROM orders ORDER BY id DESC LIMIT 500
-            `).all();
+            const range = req.query.range || 'ALL';
+            const csv = biService.generateExecutiveDashboardExcelCsv(range, req.query.start, req.query.end);
+            const timestamp = new Date().toISOString().slice(0, 10);
+            const asciiFallback = `executive_dashboard_orders_${timestamp}.csv`;
+            const encodedFilename = encodeURIComponent(`گزارش_جامع_داشبورد_مدیریتی_سفارشات_${timestamp}.csv`);
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedFilename}`);
+            return res.send(csv);
         } else if (entity === 'inventory') {
             rows = db.prepare(`
                 SELECT 

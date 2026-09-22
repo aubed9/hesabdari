@@ -331,10 +331,10 @@ const app = {
                                 </select>
                             </div>
 
-                            <a href="/api/export/orders" target="_blank" class="bg-white/10 hover:bg-white/20 text-white font-medium px-3 py-2.5 rounded-xl text-xs border border-white/20 transition flex items-center gap-1.5">
+                            <button onclick="app.downloadDashboardExcel('${range}')" class="bg-white/10 hover:bg-white/20 text-white font-medium px-3 py-2.5 rounded-xl text-xs border border-white/20 transition flex items-center gap-1.5 cursor-pointer">
                                 <i data-lucide="sheet" class="w-3.5 h-3.5"></i>
-                                <span>خروجی اکسل</span>
-                            </a>
+                                <span>خروجی اکسل جامع</span>
+                            </button>
 
                             <button onclick="app.showSection('pos')" class="bg-white hover:bg-purple-50 text-purple-900 font-bold px-4 py-2.5 rounded-xl text-xs shadow-md transition flex items-center gap-2">
                                 <i data-lucide="shopping-cart" class="w-4 h-4 text-purple-600"></i>
@@ -354,6 +354,7 @@ const app = {
                                 <div>فروش دوره: <strong class="text-slate-900 font-mono text-sm">${Number(d.period.sales).toLocaleString('fa-IR')} تومان</strong></div>
                                 <div>سود ناخالص دوره: <strong class="text-emerald-700 font-mono text-sm">${Number(d.period.grossProfit).toLocaleString('fa-IR')} تومان</strong></div>
                                 <div>تعداد فاکتور: <strong class="text-purple-700 font-mono text-sm">${d.period.invoicesCount}</strong></div>
+                                <div>مشتریان جدید دوره: <strong class="text-purple-700 font-mono text-sm">${d.customers ? (d.customers.new_customers_period || 0) : 0} نفر</strong></div>
                                 <div>میانگین هر فاکتور: <strong class="text-slate-700 font-mono">${Number(d.period.averageOrderValue).toLocaleString('fa-IR')} تومان</strong></div>
                             </div>
                         </div>
@@ -477,8 +478,37 @@ const app = {
                                 <span class="font-medium">مشتریان در خطر ریزش (RFM)</span>
                                 <i data-lucide="user-x" class="w-4 h-4 text-amber-600"></i>
                             </div>
-                            <div class="text-xl font-black text-amber-700 mt-2 font-mono">${d.customers.at_risk_customers} <span class="text-xs font-normal text-slate-400">نفر</span></div>
+                            <div class="text-xl font-black text-amber-700 mt-2 font-mono">${d.customers ? d.customers.at_risk_customers : 0} <span class="text-xs font-normal text-slate-400">نفر</span></div>
                             <div class="text-[11px] text-amber-700 mt-1">بدون خرید بیش از ۶۰ روز</div>
+                        </div>
+
+                        <!-- 13. مشتریان جدید ثبت‌شده -->
+                        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-purple-300 transition" onclick="app.showSection('crm')">
+                            <div class="flex items-center justify-between text-slate-400">
+                                <span class="font-medium">مشتریان جدید ثبت‌شده</span>
+                                <i data-lucide="user-plus" class="w-4 h-4 text-purple-600"></i>
+                            </div>
+                            <div class="text-xl font-black text-purple-700 mt-2 font-mono">
+                                ${d.customers ? (d.customers.new_customers_period !== undefined ? d.customers.new_customers_period : (d.customers.new_customers_today || 0)) : 0} <span class="text-xs font-normal text-slate-400">نفر</span>
+                            </div>
+                            <div class="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+                                <span>امروز: ${d.customers ? (d.customers.new_customers_today || 0) : 0}</span>
+                                <span>این ماه: ${d.customers ? (d.customers.new_customers_month || 0) : 0}</span>
+                            </div>
+                        </div>
+
+                        <!-- 14. کل باشگاه مشتریان و VIP -->
+                        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 transition" onclick="app.showSection('crm')">
+                            <div class="flex items-center justify-between text-slate-400">
+                                <span class="font-medium">کل باشگاه مشتریان</span>
+                                <i data-lucide="users" class="w-4 h-4 text-indigo-600"></i>
+                            </div>
+                            <div class="text-xl font-black text-indigo-700 mt-2 font-mono">
+                                ${d.customers ? (d.customers.total_customers || 0) : 0} <span class="text-xs font-normal text-slate-400">عضو فعال</span>
+                            </div>
+                            <div class="text-[11px] text-indigo-600 mt-1">
+                                ${d.customers ? (d.customers.vip_customers || 0) : 0} عضو VIP
+                            </div>
                         </div>
                     </div>
 
@@ -1739,6 +1769,13 @@ const app = {
         } catch (err) {
             alert(err.message);
         }
+    },
+
+    // Executive Dashboard Excel CSV Export Handler
+    downloadDashboardExcel(range = 'TODAY') {
+        const safeRange = range || 'TODAY';
+        this.showNotification('در حال آماده‌سازی و دانلود فایل اکسل جامع داشبورد...', 'info');
+        window.location.href = `/api/dashboard/export/excel?range=${encodeURIComponent(safeRange)}`;
     },
 
     // Global Modal Helpers
