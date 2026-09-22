@@ -58,26 +58,46 @@ const pos = {
                     <div id="posProductGrid" class="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5 gap-3 pt-3">
                         <div class="col-span-full py-12 text-center text-slate-400">در حال بارگذاری محصولات...</div>
                     </div>
-
-                    </div>
                 </div>
 
                 <!-- Right Column: Cart, Customer & Checkout (40%) -->
                 <div class="w-full lg:w-96 flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm p-4 overflow-hidden">
-                    <!-- Customer Selection Header -->
-                    <div class="pb-3 border-b border-slate-100 flex items-center justify-between">
-                        <div id="selectedCustomerBadge" class="flex items-center gap-2">
-                            <div class="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs">
-                                <i data-lucide="user" class="w-4 h-4"></i>
+                    <!-- Customer Selection & CRM Integration Box -->
+                    <div class="pb-3.5 border-b border-slate-100 space-y-2.5">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                                <span class="p-1 rounded-lg bg-purple-100 text-purple-700">
+                                    <i data-lucide="user-check" class="w-3.5 h-3.5"></i>
+                                </span>
+                                <span>باشگاه مشتریان و CRM</span>
                             </div>
-                            <div>
-                                <div class="text-xs font-bold text-slate-800">مشتری گذری</div>
-                                <div class="text-[10px] text-slate-400">فاقد امتیاز باشگاه</div>
-                            </div>
+                            <button onclick="pos.openCustomerModal()" class="text-[11px] text-purple-700 hover:text-purple-900 font-bold bg-purple-50 hover:bg-purple-100 border border-purple-200/70 px-2.5 py-1 rounded-lg transition flex items-center gap-1 cursor-pointer">
+                                <i data-lucide="user-plus" class="w-3 h-3"></i>
+                                <span>+ ثبت / لیست CRM</span>
+                            </button>
                         </div>
-                        <button onclick="pos.openCustomerModal()" class="text-xs text-purple-600 hover:text-purple-800 font-medium">
-                            تغییر مشتری
-                        </button>
+
+                        <!-- Selected Customer Card (Large & Prominent) -->
+                        <div id="selectedCustomerBadge"></div>
+
+                        <!-- Integrated Real-time CRM Customer Search Input -->
+                        <div class="relative">
+                            <div class="relative flex items-center">
+                                <i data-lucide="search" class="w-3.5 h-3.5 text-purple-500 absolute right-3 pointer-events-none"></i>
+                                <input type="text" id="posInlineCustomerSearch" 
+                                       placeholder="🔍 جستجوی مشتری (نام، موبایل ۰۹... یا کد)..." 
+                                       oninput="pos.handleInlineCustomerSearch(this.value)" 
+                                       onfocus="pos.handleInlineCustomerSearch(this.value)"
+                                       autocomplete="off"
+                                       class="w-full pr-9 pl-8 py-2 bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 focus:border-purple-600 focus:ring-2 focus:ring-purple-100 rounded-xl text-xs font-semibold text-slate-800 outline-none transition shadow-inner">
+                                <button id="posClearCustSearchBtn" onclick="pos.clearInlineCustomerSearch()" type="button" class="hidden absolute left-2.5 text-slate-400 hover:text-rose-600 p-0.5 transition cursor-pointer" title="پاک کردن جستجو">
+                                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                                </button>
+                            </div>
+
+                            <!-- Live Dropdown Results -->
+                            <div id="posInlineCustomerResults" class="hidden absolute z-30 top-full mt-1.5 right-0 left-0 bg-white rounded-xl border border-purple-200 shadow-xl max-h-64 overflow-y-auto divide-y divide-slate-100"></div>
+                        </div>
                     </div>
 
                     <!-- Cart Items List -->
@@ -108,31 +128,31 @@ const pos = {
                         </div>
 
                         <!-- Action Buttons -->
-                        <div class="grid grid-cols-2 gap-2 pt-2">
-                            <button onclick="pos.openCheckoutModal()" class="col-span-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white py-3 rounded-xl font-bold text-sm shadow-md shadow-emerald-100 flex items-center justify-center gap-2 transition">
+                        <div class="space-y-2 pt-2">
+                            <!-- Primary Full Checkout -->
+                            <button onclick="pos.openCheckoutModal('POS')" class="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white py-3 rounded-xl font-bold text-sm shadow-md shadow-emerald-100 flex items-center justify-center gap-2 transition cursor-pointer">
                                 <i data-lucide="credit-card" class="w-5 h-5"></i>
                                 <span>ثبت و تسویه فاکتور [F4]</span>
                             </button>
 
-                            <button onclick="pos.saveAsProforma()" class="bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition">
-                                <i data-lucide="file-text" class="w-4 h-4 text-blue-600"></i>
-                                <span>پیش‌فاکتور</span>
+                            <!-- Dedicated Split Payment Button -->
+                            <button onclick="pos.openCheckoutModal('SPLIT')" class="w-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-600 text-white py-2.5 rounded-xl font-black text-xs shadow-md shadow-orange-100 flex items-center justify-center gap-2 transition cursor-pointer">
+                                <i data-lucide="pie-chart" class="w-4 h-4"></i>
+                                <span>پرداخت ترکیبی (نقد + کارتخوان + کارت‌به‌کارت)</span>
                             </button>
 
-                            <button onclick="pos.saveAsLayaway()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition">
-                                <i data-lucide="bookmark" class="w-4 h-4 text-indigo-600"></i>
-                                <span>رزرو با بیعانه</span>
-                            </button>
+                            <!-- Secondary Utilities -->
+                            <div class="grid grid-cols-2 gap-2 pt-0.5">
+                                <button onclick="pos.openExchangeModal()" class="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition cursor-pointer">
+                                    <i data-lucide="repeat" class="w-4 h-4 text-amber-600"></i>
+                                    <span>تعویض کالا</span>
+                                </button>
 
-                            <button onclick="pos.openExchangeModal()" class="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition">
-                                <i data-lucide="repeat" class="w-4 h-4 text-amber-600"></i>
-                                <span>تعویض کالا</span>
-                            </button>
-
-                            <button onclick="pos.openCloseSessionModal()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition">
-                                <i data-lucide="lock" class="w-4 h-4"></i>
-                                <span>بستن شیفت صندوق</span>
-                            </button>
+                                <button onclick="pos.openCloseSessionModal()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition cursor-pointer">
+                                    <i data-lucide="lock" class="w-4 h-4"></i>
+                                    <span>بستن شیفت صندوق</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -142,6 +162,7 @@ const pos = {
         if (window.app && typeof app.updateSidebarUIState === 'function') {
             app.updateSidebarUIState();
         }
+        this.renderSelectedCustomerBadge();
         lucide.createIcons();
         this.loadCategoryPills();
         this.loadProducts();
@@ -167,12 +188,20 @@ const pos = {
                 document.getElementById('posSearchInput')?.focus();
             } else if (e.key === 'F4') {
                 e.preventDefault();
-                pos.openCheckoutModal();
+                pos.openCheckoutModal('POS');
             } else if (e.key === 'F8') {
                 e.preventDefault();
                 pos.openDiscountModal();
             }
         };
+
+        // Close inline customer search when clicking outside
+        document.addEventListener('click', (e) => {
+            const box = e.target.closest('#posInlineCustomerSearch, #posInlineCustomerResults, #posClearCustSearchBtn');
+            if (!box) {
+                this.closeCustomerSearchResults();
+            }
+        });
     },
 
     async loadProducts(query = '') {
@@ -633,33 +662,201 @@ const pos = {
         }
     },
 
-    selectCustomer(cust) {
-        this.selectedCustomer = cust;
+    renderSelectedCustomerBadge() {
         const badge = document.getElementById('selectedCustomerBadge');
+        if (!badge) return;
+        const cust = this.selectedCustomer;
         if (cust) {
             badge.innerHTML = `
-                <div class="w-8 h-8 rounded-full bg-purple-600 text-white flex items-center justify-center font-bold text-xs">
-                    ${cust.full_name.slice(0, 1)}
-                </div>
-                <div>
-                    <div class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                        <span>${cust.full_name}</span>
-                        <span class="text-[9px] bg-purple-100 text-purple-700 font-bold px-1.5 py-0.2 rounded">${cust.loyalty_tier}</span>
+                <div class="flex items-center justify-between w-full bg-gradient-to-r from-purple-50 via-indigo-50/50 to-purple-50 border border-purple-200/90 rounded-2xl p-2.5 shadow-xs transition">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-purple-600 to-indigo-600 text-white flex items-center justify-center font-black text-sm shadow-sm shrink-0">
+                            ${(cust.full_name || 'م').slice(0, 1)}
+                        </div>
+                        <div class="min-w-0 space-y-0.5">
+                            <div class="flex items-center gap-1.5 truncate">
+                                <span class="text-xs font-black text-slate-900 truncate">${cust.full_name}</span>
+                                <span class="text-[9px] font-bold px-1.5 py-0.2 rounded-full shrink-0 ${cust.loyalty_tier === 'VIP' ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-purple-100 text-purple-800'}">${cust.loyalty_tier || 'BRONZE'}</span>
+                            </div>
+                            <div class="text-[11px] text-slate-500 font-mono font-bold flex items-center gap-1">
+                                <i data-lucide="phone" class="w-3 h-3 text-slate-400"></i>
+                                <span>${cust.mobile || 'فاقد شماره تماس'}</span>
+                            </div>
+                            <div class="text-[10px] flex items-center gap-2 pt-0.5">
+                                <span class="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">کیف پول: <b class="font-mono">${Number(cust.wallet_balance || 0).toLocaleString('fa-IR')}</b> ت</span>
+                                <span class="text-purple-700 font-bold bg-purple-50 px-1.5 py-0.2 rounded border border-purple-200">امتیاز: <b class="font-mono">${cust.loyalty_points || 0}</b></span>
+                            </div>
+                        </div>
                     </div>
-                    <div class="text-[10px] text-emerald-600">کیف پول: ${Number(cust.wallet_balance).toLocaleString('fa-IR')} ت | امتیاز: ${cust.loyalty_points}</div>
+                    <button type="button" onclick="pos.selectCustomer(null)" title="لغو انتخاب و بازگشت به مشتری گذری" class="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition shrink-0 cursor-pointer" aria-label="لغو انتخاب">
+                        <i data-lucide="user-x" class="w-4 h-4"></i>
+                    </button>
                 </div>
             `;
         } else {
             badge.innerHTML = `
-                <div class="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs">
-                    <i data-lucide="user" class="w-4 h-4"></i>
-                </div>
-                <div>
-                    <div class="text-xs font-bold text-slate-800">مشتری گذری</div>
-                    <div class="text-[10px] text-slate-400">فاقد امتیاز باشگاه</div>
+                <div class="flex items-center justify-between w-full bg-slate-50 border border-slate-200/90 rounded-2xl p-2.5 transition">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-10 h-10 rounded-2xl bg-slate-200 text-slate-500 flex items-center justify-center font-bold text-base shrink-0">
+                            <i data-lucide="user" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <div class="text-xs font-black text-slate-800">مشتری عادی / گذری (Walk-in)</div>
+                            <div class="text-[10px] text-slate-400 mt-0.5">بدون تخصیص کیف پول و امتیاز باشگاه</div>
+                        </div>
+                    </div>
+                    <span class="text-[10px] bg-slate-200/70 text-slate-600 font-bold px-2 py-1 rounded-lg">گذری</span>
                 </div>
             `;
         }
+        lucide.createIcons();
+    },
+
+    async ensureCustomersLoaded() {
+        if (!this.allCustomers || this.allCustomers.length === 0) {
+            try {
+                const res = await fetch('/api/crm/customers');
+                const json = await res.json();
+                this.allCustomers = json.data || [];
+            } catch (e) {
+                console.error('Failed to load CRM customers for POS', e);
+            }
+        }
+    },
+
+    normalizeSearchText(str) {
+        if (!str) return '';
+        let s = String(str).toLowerCase().trim();
+        s = s.replace(/ي/g, 'ی').replace(/ك/g, 'ک');
+        const persianDigits = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
+        const arabicDigits  = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
+        for (let i = 0; i < 10; i++) {
+            s = s.replace(new RegExp(persianDigits[i], 'g'), String(i));
+            s = s.replace(new RegExp(arabicDigits[i], 'g'), String(i));
+        }
+        return s;
+    },
+
+    async handleInlineCustomerSearch(query) {
+        await this.ensureCustomersLoaded();
+        const resultsContainer = document.getElementById('posInlineCustomerResults');
+        const clearBtn = document.getElementById('posClearCustSearchBtn');
+        if (!resultsContainer) return;
+
+        const raw = (query || '').trim();
+        if (clearBtn) {
+            if (raw.length > 0) clearBtn.classList.remove('hidden');
+            else clearBtn.classList.add('hidden');
+        }
+
+        if (!raw) {
+            resultsContainer.classList.add('hidden');
+            return;
+        }
+
+        const q = this.normalizeSearchText(raw);
+        const filtered = (this.allCustomers || []).filter(c => {
+            const name = this.normalizeSearchText(c.full_name || '');
+            const mob = String(c.mobile || '').replace(/[^\d]/g, '');
+            const code = this.normalizeSearchText(c.customer_code || '');
+            return name.includes(q) || mob.includes(q) || code.includes(q);
+        });
+
+        resultsContainer.classList.remove('hidden');
+        let html = '';
+
+        if (this.selectedCustomer) {
+            html += `
+                <div onclick="pos.selectCustomer(null)" class="p-2 hover:bg-slate-50 cursor-pointer flex items-center justify-between text-xs text-slate-600 border-b border-slate-100 transition">
+                    <span class="flex items-center gap-1.5"><i data-lucide="user-x" class="w-3.5 h-3.5 text-slate-400"></i> تغییر به مشتری گذری (بدون ثبت مشخصات)</span>
+                    <span class="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 font-bold">انتخاب گذری</span>
+                </div>
+            `;
+        }
+
+        if (filtered.length === 0) {
+            html += `
+                <div class="p-3 text-center text-xs text-slate-500 space-y-2">
+                    <div>مشتری با نام یا شماره «<b class="text-slate-700">${raw}</b>» در CRM یافت نشد.</div>
+                    <button type="button" onclick="pos.openQuickAddFromInline('${raw.replace(/'/g, "\\'")}')" class="inline-flex items-center gap-1 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition shadow-sm cursor-pointer">
+                        <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
+                        <span>+ ثبت سریع «${raw}» در باشگاه CRM</span>
+                    </button>
+                </div>
+            `;
+        } else {
+            html += filtered.slice(0, 10).map(c => `
+                <div onclick="pos.selectCustomer(${JSON.stringify(c).replace(/"/g, '&quot;')})" 
+                     class="p-2.5 hover:bg-purple-50/80 cursor-pointer flex items-center justify-between transition group">
+                    <div class="min-w-0 pr-1">
+                        <div class="text-xs font-bold text-slate-800 flex items-center gap-1.5 truncate">
+                            <span class="truncate group-hover:text-purple-700 font-extrabold">${c.full_name}</span>
+                            <span class="text-[9px] font-bold px-1.5 py-0.2 rounded-full shrink-0 ${c.loyalty_tier === 'VIP' ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-purple-100 text-purple-700'}">${c.loyalty_tier || 'BRONZE'}</span>
+                        </div>
+                        <div class="text-[11px] text-slate-500 font-mono mt-0.5">📞 ${c.mobile || '—'}</div>
+                    </div>
+                    <div class="text-left shrink-0 pl-1">
+                        <div class="text-[11px] font-bold text-purple-700 font-mono">${c.loyalty_points || 0} امتیاز</div>
+                        <div class="text-[10px] text-emerald-700 font-bold">${Number(c.wallet_balance || 0).toLocaleString('fa-IR')} ت</div>
+                    </div>
+                </div>
+            `).join('');
+
+            if (filtered.length > 10) {
+                html += `
+                    <div onclick="pos.openCustomerModal()" class="p-2 text-center text-[11px] text-purple-600 hover:bg-purple-50 font-bold cursor-pointer transition">
+                        نمایش همه ${filtered.length} مشتری منطبق در پنجره کامل...
+                    </div>
+                `;
+            }
+        }
+
+        resultsContainer.innerHTML = html;
+        lucide.createIcons();
+    },
+
+    clearInlineCustomerSearch() {
+        const input = document.getElementById('posInlineCustomerSearch');
+        if (input) input.value = '';
+        const clearBtn = document.getElementById('posClearCustSearchBtn');
+        if (clearBtn) clearBtn.classList.add('hidden');
+        const res = document.getElementById('posInlineCustomerResults');
+        if (res) res.classList.add('hidden');
+    },
+
+    closeCustomerSearchResults() {
+        const res = document.getElementById('posInlineCustomerResults');
+        if (res) res.classList.add('hidden');
+    },
+
+    async openQuickAddFromInline(query) {
+        this.closeCustomerSearchResults();
+        await this.openCustomerModal();
+        const form = document.getElementById('quickCustForm');
+        if (form && form.classList.contains('hidden')) {
+            this.toggleQuickCustomerForm();
+        }
+        const cleanDigits = (query || '').replace(/[^\d]/g, '');
+        if (cleanDigits.length >= 7) {
+            const mobileInput = document.getElementById('qcMobile');
+            if (mobileInput) {
+                mobileInput.value = query;
+                this.handleQuickMobileInput(mobileInput);
+            }
+            document.getElementById('qcName')?.focus();
+        } else {
+            const nameInput = document.getElementById('qcName');
+            if (nameInput) {
+                nameInput.value = query;
+            }
+            document.getElementById('qcMobile')?.focus();
+        }
+    },
+
+    selectCustomer(cust) {
+        this.selectedCustomer = cust;
+        this.renderSelectedCustomerBadge();
+        this.clearInlineCustomerSearch();
         app.closeModal();
         lucide.createIcons();
     },
@@ -700,7 +897,7 @@ const pos = {
     },
 
     // Open Checkout Modal (Unified Payment Options: POS, Cash, Card to Card, Split)
-    openCheckoutModal() {
+    openCheckoutModal(initialMode = 'POS') {
         if (this.cart.length === 0) {
             app.showNotification('سبد خرید خالی است!', 'warning');
             return;
@@ -711,7 +908,7 @@ const pos = {
         const walletAvail = this.selectedCustomer ? this.selectedCustomer.wallet_balance : 0;
 
         this.checkoutState = {
-            mode: 'POS', // POS, CASH, TRANSFER, SPLIT
+            mode: initialMode, // POS, CASH, TRANSFER, SPLIT
             total: total
         };
 
@@ -745,34 +942,34 @@ const pos = {
                     <label class="block font-bold text-slate-700">انتخاب روش پرداخت و تسویه:</label>
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         <button type="button" onclick="pos.setPaymentMode('POS')" id="pmTab-POS" 
-                                class="p-2.5 rounded-xl border-2 border-purple-600 bg-purple-50 text-purple-900 font-bold flex flex-col items-center gap-1 transition cursor-pointer">
-                            <i data-lucide="credit-card" class="w-5 h-5 text-purple-600"></i>
+                                class="p-2.5 rounded-xl border-2 ${initialMode === 'POS' ? 'border-purple-600 bg-purple-50 text-purple-900' : 'border-slate-200 hover:border-slate-300 text-slate-700'} font-bold flex flex-col items-center gap-1 transition cursor-pointer">
+                            <i data-lucide="credit-card" class="w-5 h-5 ${initialMode === 'POS' ? 'text-purple-600' : 'text-slate-600'}"></i>
                             <span class="text-xs">کارتخوان (POS)</span>
                         </button>
                         
                         <button type="button" onclick="pos.setPaymentMode('CASH')" id="pmTab-CASH" 
-                                class="p-2.5 rounded-xl border-2 border-slate-200 hover:border-slate-300 text-slate-700 font-bold flex flex-col items-center gap-1 transition cursor-pointer">
-                            <i data-lucide="banknote" class="w-5 h-5 text-emerald-600"></i>
+                                class="p-2.5 rounded-xl border-2 ${initialMode === 'CASH' ? 'border-purple-600 bg-purple-50 text-purple-900' : 'border-slate-200 hover:border-slate-300 text-slate-700'} font-bold flex flex-col items-center gap-1 transition cursor-pointer">
+                            <i data-lucide="banknote" class="w-5 h-5 ${initialMode === 'CASH' ? 'text-emerald-600' : 'text-slate-600'}"></i>
                             <span class="text-xs">نقدی (اسکناس)</span>
                         </button>
 
                         <button type="button" onclick="pos.setPaymentMode('TRANSFER')" id="pmTab-TRANSFER" 
-                                class="p-2.5 rounded-xl border-2 border-slate-200 hover:border-slate-300 text-slate-700 font-bold flex flex-col items-center gap-1 transition cursor-pointer">
-                            <i data-lucide="arrow-left-right" class="w-5 h-5 text-blue-600"></i>
+                                class="p-2.5 rounded-xl border-2 ${initialMode === 'TRANSFER' ? 'border-purple-600 bg-purple-50 text-purple-900' : 'border-slate-200 hover:border-slate-300 text-slate-700'} font-bold flex flex-col items-center gap-1 transition cursor-pointer">
+                            <i data-lucide="arrow-left-right" class="w-5 h-5 ${initialMode === 'TRANSFER' ? 'text-blue-600' : 'text-slate-600'}"></i>
                             <span class="text-xs">کارت به کارت</span>
                         </button>
 
                         <button type="button" onclick="pos.setPaymentMode('SPLIT')" id="pmTab-SPLIT" 
-                                class="p-2.5 rounded-xl border-2 border-slate-200 hover:border-slate-300 text-slate-700 font-bold flex flex-col items-center gap-0.5 transition cursor-pointer">
-                            <i data-lucide="pie-chart" class="w-5 h-5 text-amber-600"></i>
+                                class="p-2.5 rounded-xl border-2 ${initialMode === 'SPLIT' ? 'border-purple-600 bg-purple-50 text-purple-900' : 'border-slate-200 hover:border-slate-300 text-slate-700'} font-bold flex flex-col items-center gap-0.5 transition cursor-pointer">
+                            <i data-lucide="pie-chart" class="w-5 h-5 ${initialMode === 'SPLIT' ? 'text-amber-600' : 'text-slate-600'}"></i>
                             <span class="text-xs">پرداخت ترکیبی</span>
-                            <span class="text-[9px] text-amber-700 font-normal">نقد + پوز + کارت</span>
+                            <span class="text-[9px] ${initialMode === 'SPLIT' ? 'text-amber-700' : 'text-slate-400'} font-normal">نقد + پوز + کارت</span>
                         </button>
                     </div>
                 </div>
 
                 <!-- Mode 1: POS Card Container -->
-                <div id="modePanel-POS" class="p-3 bg-purple-50 rounded-xl border border-purple-200 space-y-2">
+                <div id="modePanel-POS" class="${initialMode === 'POS' ? '' : 'hidden'} p-3 bg-purple-50 rounded-xl border border-purple-200 space-y-2">
                     <div class="flex items-center justify-between">
                         <span class="font-bold text-purple-900">دستگاه کارتخوان فعال:</span>
                         <span class="text-xs bg-purple-200 text-purple-800 font-bold px-2 py-0.5 rounded">کارتخوان مرکزی (سامان)</span>
@@ -784,7 +981,7 @@ const pos = {
                 </div>
 
                 <!-- Mode 2: CASH Container -->
-                <div id="modePanel-CASH" class="hidden p-3 bg-emerald-50 rounded-xl border border-emerald-200 space-y-3">
+                <div id="modePanel-CASH" class="${initialMode === 'CASH' ? '' : 'hidden'} p-3 bg-emerald-50 rounded-xl border border-emerald-200 space-y-3">
                     <div class="flex items-center justify-between">
                         <span class="font-bold text-emerald-900">دریافت نقد داخل کشوی دخل:</span>
                         <span class="font-mono text-xs font-bold text-emerald-700">مبلغ فاکتور: ${total.toLocaleString('fa-IR')} ت</span>
@@ -793,7 +990,7 @@ const pos = {
                         <div>
                             <label class="block text-slate-600 mb-1">مبلغ دریافتی از مشتری (اسکناس):</label>
                             <input type="number" id="cashReceivedInput" value="${total}" oninput="pos.calcCashChange()" 
-                                   class="w-full p-2 bg-white border border-slate-300 rounded-lg font-bold text-sm font-mono">
+                                    class="w-full p-2 bg-white border border-slate-300 rounded-lg font-bold text-sm font-mono">
                         </div>
                         <div>
                             <label class="block text-slate-600 mb-1">مبلغ عودت به مشتری (پول خرد):</label>
@@ -803,7 +1000,7 @@ const pos = {
                 </div>
 
                 <!-- Mode 3: TRANSFER (Card-to-Card) Container -->
-                <div id="modePanel-TRANSFER" class="hidden p-3 bg-blue-50 rounded-xl border border-blue-200 space-y-3">
+                <div id="modePanel-TRANSFER" class="${initialMode === 'TRANSFER' ? '' : 'hidden'} p-3 bg-blue-50 rounded-xl border border-blue-200 space-y-3">
                     <div class="flex items-center justify-between">
                         <span class="font-bold text-blue-900">انتقال بانکی / کارت به کارت:</span>
                         <span class="font-mono text-xs font-bold text-blue-700">${total.toLocaleString('fa-IR')} ت</span>
@@ -811,12 +1008,12 @@ const pos = {
                     <div>
                         <label class="block text-slate-700 font-bold mb-1">شماره ارجاع / پیگیری یا ۴ رقم کارت واریزی (اختیاری):</label>
                         <input type="text" id="transferRefInput" placeholder="مثلاً: ۶۸۲۹۴۲ یا سپهر-۸۹۱۰" 
-                               class="w-full p-2.5 bg-white border border-blue-200 rounded-lg text-xs font-mono font-bold">
+                                class="w-full p-2.5 bg-white border border-blue-200 rounded-lg text-xs font-mono font-bold">
                     </div>
                 </div>
 
                 <!-- Mode 4: SPLIT Container (پرداخت ترکیبی پیشرفته) -->
-                <div id="modePanel-SPLIT" class="hidden space-y-3 p-3.5 bg-slate-50 border border-slate-200 rounded-2xl">
+                <div id="modePanel-SPLIT" class="${initialMode === 'SPLIT' ? '' : 'hidden'} space-y-3 p-3.5 bg-slate-50 border border-slate-200 rounded-2xl">
                     <div class="flex items-center justify-between pb-2 border-b border-slate-200">
                         <div class="flex items-center gap-1.5 font-bold text-slate-800 text-xs">
                             <i data-lucide="pie-chart" class="w-4 h-4 text-amber-600"></i>
@@ -953,6 +1150,9 @@ const pos = {
             </div>
         `);
         lucide.createIcons();
+        if (initialMode === 'SPLIT') {
+            this.checkSplitTotal();
+        }
     },
 
     setPaymentMode(mode) {
