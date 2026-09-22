@@ -1474,12 +1474,98 @@ const pos = {
 
                 <div class="flex justify-end gap-2 pt-2">
                     <button onclick="app.closeModal()" class="px-4 py-2 text-slate-600">انصراف</button>
-                    <button onclick="app.showNotification('فرآیند تعویض با موفقیت ثبت و مابه‌التفاوت تسویه شد.', 'success'); app.closeModal();" class="px-5 py-2.5 bg-amber-600 text-white font-bold rounded-xl">
+                    <button id="btnSubmitExchange" onclick="pos.submitExchange()" class="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl transition">
                         تایید تعویض و تسویه مابه‌التفاوت
                     </button>
                 </div>
             </div>
         `);
+    },
+
+    // Submit Exchange against backend API /api/pos/exchanges
+    async submitExchange() {
+        const orderNum = document.getElementById('exchOrderNum')?.value?.trim();
+        const isOpened = document.getElementById('exchOpened')?.value === '1';
+        const reason = document.getElementById('exchReason')?.value?.trim() || 'تعویض کالا در صندوق فروشگاه';
+
+        if (!orderNum) {
+            app.showNotification('شماره فاکتور قبلی الزامی است.', 'warning');
+            return;
+        }
+
+        if (this.cart.length === 0) {
+            app.showNotification('ابتدا کالای جدید جایگزین را به سبد خرید اضافه کنید.', 'warning');
+            return;
+        }
+
+        const btn = document.getElementById('btnSubmitExchange');
+        if (btn) btn.disabled = true;
+
+        try {
+            // 1. Fetch original order details
+            const ordRes = await fetch(`/api/pos/orders/${orderNum}`);
+            const ordJson = await ordRes.json();
+            if (!ordJson.success || !ordJson.data) {
+                throw new Error(ordJson.error || 'فاکتور مرجع با این شماره یافت نشد.');
+            }
+
+            const origOrder = ordJson.data;
+            if (!origOrder.items || origOrder.items.length === 0) {
+                throw new Error('اقلام فاکتور مرجع یافت نشد.');
+            }
+
+            // Return the first eligible item (or full order item)
+            const firstItem = origOrder.items[0];
+            const returnData = {
+                originalOrderId: origOrder.id,
+                customerId: this.selectedCustomer ? this.selectedCustomer.id : origOrder.customer_id,
+                employeeId: 1,
+                reason,
+                refundMethod: 'WALLET_CREDIT',
+                items: [{
+                    orderItemId: firstItem.id,
+                    quantity: 1,
+                    isOpened: isOpened,
+                    isRestockable: !isOpened
+                }]
+            };
+
+            const subtotal = this.cart.reduce((s, i) => s + (i.unitPrice * i.quantity), 0);
+            const discount = Math.min(this.discountAmount, subtotal);
+            const total = Math.max(0, subtotal - discount);
+
+            const newOrderData = {
+                customerId: this.selectedCustomer ? this.selectedCustomer.id : origOrder.customer_id,
+                employeeId: 1,
+                cashSessionId: this.activeSession?.id || null,
+                items: this.cart.map(i => ({ variantId: i.variantId, quantity: i.quantity, unitPrice: i.unitPrice })),
+                discountAmount: discount,
+                channel: 'STORE_POS',
+                orderType: 'SALE',
+                notes: `تعویض متصل به فاکتور ${orderNum}`,
+                payments: [{ method: 'CARD', amount: total }]
+            };
+
+            const exchRes = await fetch('/api/pos/exchanges', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ returnData, newOrderData })
+            });
+
+            const exchJson = await exchRes.json();
+            if (exchJson.success) {
+                app.showNotification('فرآیند تعویض با موفقیت ثبت و اسناد دوبل صادر گردید.', 'success');
+                this.cart = [];
+                this.discountAmount = 0;
+                this.renderCart();
+                app.closeModal();
+            } else {
+                throw new Error(exchJson.error || 'خطا در ثبت فرآیند تعویض');
+            }
+        } catch (e) {
+            app.showNotification(e.message, 'error');
+            if (btn) btn.disabled = false;
+        }
     },
 
     // Close Shift Modal
