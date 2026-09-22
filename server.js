@@ -824,8 +824,36 @@ app.post('/api/crm/convert-points', (req, res) => {
 
 app.get('/api/crm/birthdays', (req, res) => {
     try {
-        const birthdays = crmService.getUpcomingBirthdays();
-        res.json({ success: true, data: birthdays });
+        const month = req.query.month ? Number(req.query.month) : null;
+        const birthdays = crmService.getUpcomingBirthdays(month);
+        const { getCurrentJalaliDate, getJalaliMonthName } = require('./utils/dateUtils');
+        const curJ = getCurrentJalaliDate();
+        const targetMonth = (month && month >= 1 && month <= 12) ? month : curJ.month;
+        const targetMonthName = getJalaliMonthName(targetMonth);
+        res.json({ 
+            success: true, 
+            data: birthdays,
+            meta: {
+                selectedMonth: targetMonth,
+                selectedMonthName: targetMonthName,
+                count: birthdays.length,
+                currentJalali: curJ
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.get('/api/crm/birthdays/excel', (req, res) => {
+    try {
+        const month = req.query.month ? Number(req.query.month) : null;
+        const result = crmService.generateBirthdaysExcelCsv(month);
+        const encoded = encodeURIComponent(result.filename);
+        const ascii = result.asciiFallback || 'birthdays.csv';
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`);
+        res.send(result.csv);
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }

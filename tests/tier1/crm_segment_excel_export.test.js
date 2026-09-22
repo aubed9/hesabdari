@@ -35,6 +35,18 @@ describe('Tier 1: Customer Segmentation & Excel Export Suite', () => {
             VALUES (104, 'C-NEW', 'مشتری جدید ۴', '09124444444', 'BRONZE', 50000, 20, 'NEW', 1)
         `).run();
 
+        // 5. Customer with birthday in Aban (Month 8)
+        db.prepare(`
+            INSERT INTO customers (id, referral_code, full_name, mobile, loyalty_tier, wallet_balance, loyalty_points, rfm_segment, birth_date, is_active)
+            VALUES (105, 'C-ABAN', 'سحر رادمنش (آبان)', '09125555555', 'GOLD', 120000, 80, 'Loyal', '1995-10-25', 1)
+        `).run();
+
+        // 6. Another customer with birthday in Shahrivar (Month 6)
+        db.prepare(`
+            INSERT INTO customers (id, referral_code, full_name, mobile, loyalty_tier, wallet_balance, loyalty_points, rfm_segment, birth_date, is_active)
+            VALUES (106, 'C-SHAH', 'پریا کمالی (شهریور)', '09126666666', 'VIP', 250000, 200, 'Champions', '1998-09-08', 1)
+        `).run();
+
         // Add orders with different dates to verify recency calculations
         // Order for 101: 5 days ago
         db.prepare(`
@@ -171,5 +183,59 @@ describe('Tier 1: Customer Segmentation & Excel Export Suite', () => {
         const farazCsv = crmService.generateFarazSmsCsv(farazData.contacts);
         assert.ok(farazCsv.includes('تاریخ تولد (شمسی)'), 'Faraz CSV must include Shamsi birth date header');
         assert.ok(farazCsv.includes('"1371/06/21"'), 'Faraz CSV must include Shamsi birth date value');
+    });
+
+    it('T1-SEG-9: Accurately filters customers by registered Shamsi birth month (getUpcomingBirthdays)', () => {
+        // Month 6 (شهریور): Customer 101 (21 Shahrivar) and 106 (17 Shahrivar)
+        const shahrivarList = crmService.getUpcomingBirthdays(6);
+        assert.ok(Array.isArray(shahrivarList));
+        const sIds = shahrivarList.map(c => c.id);
+        assert.ok(sIds.includes(101), 'Customer 101 must be in Shahrivar birthdays');
+        assert.ok(sIds.includes(106), 'Customer 106 must be in Shahrivar birthdays');
+        assert.ok(!sIds.includes(105), 'Customer 105 (Aban) must NOT be in Shahrivar birthdays');
+
+        // Verify sorting by day of month (17th before 21st)
+        const idx106 = shahrivarList.findIndex(c => c.id === 106);
+        const idx101 = shahrivarList.findIndex(c => c.id === 101);
+        assert.ok(idx106 < idx101, 'Customer born on 17th must appear before customer born on 21st');
+
+        // Month 8 (آبان): Customer 105 (3 Aban)
+        const abanList = crmService.getUpcomingBirthdays(8);
+        const aIds = abanList.map(c => c.id);
+        assert.ok(aIds.includes(105), 'Customer 105 must be in Aban birthdays');
+        assert.ok(!aIds.includes(101), 'Customer 101 (Shahrivar) must NOT be in Aban birthdays');
+        assert.ok(!aIds.includes(106), 'Customer 106 (Shahrivar) must NOT be in Aban birthdays');
+        assert.equal(abanList[0].birth_month_name, 'آبان');
+        assert.equal(abanList[0].birth_day, 3);
+    });
+
+    it('T1-SEG-10: Generates Excel CSV for Shamsi month birthdays with UTF-8 BOM, Persian headers, and formula phone format', () => {
+        const bdayExcel = crmService.generateBirthdaysExcelCsv(6);
+        assert.ok(bdayExcel.csv.startsWith('\uFEFF'), 'CSV must start with UTF-8 BOM');
+        assert.ok(bdayExcel.filename.includes('متولدین_شهریور'), `Filename must include month name: ${bdayExcel.filename}`);
+        assert.equal(bdayExcel.month, 6);
+        assert.equal(bdayExcel.monthName, 'شهریور');
+        assert.ok(bdayExcel.count >= 2);
+
+        // Required Persian headers
+        assert.ok(bdayExcel.csv.includes('کد مشتری'));
+        assert.ok(bdayExcel.csv.includes('نام و نام خانوادگی'));
+        assert.ok(bdayExcel.csv.includes('شماره همراه (اکسل)'));
+        assert.ok(bdayExcel.csv.includes('شماره بدون صفر (ویژه پنل پیامک)'));
+        assert.ok(bdayExcel.csv.includes('تاریخ تولد شمسی'));
+        assert.ok(bdayExcel.csv.includes('روز تولد'));
+        assert.ok(bdayExcel.csv.includes('ماه تولد'));
+        assert.ok(bdayExcel.csv.includes('سن تقریبی (سال)'));
+
+        // Values formatting
+        assert.ok(bdayExcel.csv.includes('="09121111111"'), 'Must format phone as Excel formula string ="09..."');
+        assert.ok(bdayExcel.csv.includes('"9121111111"'), 'Must include phone without leading zero for SMS panels');
+        assert.ok(bdayExcel.csv.includes('"1371/06/21"'), 'Must include exact Shamsi birth date');
+        assert.ok(bdayExcel.csv.includes('"شهریور"'), 'Must include Shamsi month name');
+
+        // Verify segment export integration
+        const segBday = crmService.generateSegmentExcelCsv('birthdays');
+        assert.ok(segBday.csv.startsWith('\uFEFF'));
+        assert.ok(segBday.filename.includes('متولدین'));
     });
 });

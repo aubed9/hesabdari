@@ -482,6 +482,17 @@ const crm = {
                     </button>
                 </div>
 
+                <div class="p-3 bg-pink-50 hover:bg-pink-100/80 border border-pink-200 rounded-xl flex items-center justify-between transition cursor-pointer" onclick="crm.downloadBirthdaysExcel(); app.closeModal();">
+                    <div>
+                        <div class="font-bold text-pink-900 text-sm">اکسل متولدین ماه جاری تقویم شمسی</div>
+                        <div class="text-[11px] text-pink-700 mt-0.5">شامل شماره‌های تماس، تاریخ دقیق تولد شمسی، سن و امتیازات جهت ارسال پیامک تبریک و تخفیف</div>
+                    </div>
+                    <button class="px-3 py-1.5 bg-pink-600 hover:bg-pink-700 text-white rounded-lg font-bold flex items-center gap-1">
+                        <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                        <span>دانلود اکسل</span>
+                    </button>
+                </div>
+
                 <div class="p-3 bg-purple-50 hover:bg-purple-100/80 border border-purple-200 rounded-xl flex items-center justify-between transition cursor-pointer" onclick="crm.downloadSegmentExcel('all'); app.closeModal();">
                     <div>
                         <div class="font-bold text-purple-900 text-sm">اکسل جامع کل مشتریان فروشگاه</div>
@@ -643,44 +654,200 @@ const crm = {
         }
     },
 
-    // Birthdays Modal
-    async openBirthdaysModal() {
+    // Birthdays Modal with Shamsi Month Selector and 1-Click Excel Download
+    async openBirthdaysModal(initialMonth = null) {
         try {
-            const res = await fetch('/api/crm/birthdays');
+            app.showNotification('در حال دریافت اطلاعات متولدین...', 'info');
+            const res = await fetch(`/api/crm/birthdays${initialMonth ? `?month=${initialMonth}` : ''}`);
             const json = await res.json();
             const list = json.data || [];
+            const meta = json.meta || { selectedMonth: 6, selectedMonthName: 'شهریور', count: list.length };
+            const selectedMonth = meta.selectedMonth;
+            const selectedMonthName = meta.selectedMonthName;
+
+            const persianMonths = [
+                { id: 1, name: 'فروردین' },
+                { id: 2, name: 'اردیبهشت' },
+                { id: 3, name: 'خرداد' },
+                { id: 4, name: 'تیر' },
+                { id: 5, name: 'مرداد' },
+                { id: 6, name: 'شهریور' },
+                { id: 7, name: 'مهر' },
+                { id: 8, name: 'آبان' },
+                { id: 9, name: 'آذر' },
+                { id: 10, name: 'دی' },
+                { id: 11, name: 'بهمن' },
+                { id: 12, name: 'اسفند' }
+            ];
+
+            const optionsHtml = persianMonths.map(m => `
+                <option value="${m.id}" ${m.id === selectedMonth ? 'selected' : ''}>
+                    ماه ${m.name} ${meta.currentJalali && m.id === meta.currentJalali.month ? '(ماه جاری)' : ''}
+                </option>
+            `).join('');
 
             app.openModal(`
-                <h3 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2">
-                    <i data-lucide="gift" class="w-5 h-5 text-pink-600"></i>
-                    <span>متولدین ماه جاری (${list.length > 0 && list[0].birth_month_name ? 'ماه ' + list[0].birth_month_name : 'تقویم شمسی'})</span>
-                </h3>
-                <p class="text-xs text-slate-500 mb-4">برای این مشتریان کد تخفیف اختصاصی تولد و پیامک تبریک بر اساس تاریخ تولد شمسی آماده ارسال است:</p>
-
-                <div class="space-y-3 max-h-72 overflow-y-auto divide-y divide-slate-100 text-xs">
-                    ${list.map(c => `
-                        <div class="pt-2.5 flex items-center justify-between">
-                            <div>
-                                <div class="font-bold text-slate-900">${c.full_name}</div>
-                                <div class="text-slate-500 mt-0.5">${c.mobile} | متولد: <strong class="text-pink-600">${c.birth_friendly || (c.birth_date_shamsi || ('روز ' + c.birth_day + ' این ماه'))}</strong></div>
-                            </div>
-                            <span class="px-2.5 py-1 bg-pink-50 text-pink-700 font-bold rounded-lg font-mono">
-                                کدتخفیف BDAY15
+                <div class="space-y-4">
+                    <!-- Header -->
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                        <div>
+                            <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                                <i data-lucide="gift" class="w-5 h-5 text-pink-600"></i>
+                                <span>متولدین تقویم شمسی و خروجی اکسل اختصاصی</span>
+                            </h3>
+                            <p class="text-xs text-slate-500 mt-0.5">مشاهده اسامی، شماره تماس و دانلود فایل اکسل متولدین هر ماه جهت ارسال پیامک تبریک و تخفیف</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span id="bdayCountBadge" class="px-3 py-1 bg-pink-100 text-pink-800 rounded-full font-bold text-xs">
+                                ${list.length} نفر متولد ${selectedMonthName}
                             </span>
                         </div>
-                    `).join('')}
-                </div>
+                    </div>
 
-                <div class="pt-4 border-t border-slate-200 flex justify-end">
-                    <button onclick="app.showNotification('پیامک‌های تبریک تولد به همراه کد تخفیف با موفقیت ارسال شدند.', 'success'); app.closeModal();" class="bg-pink-600 hover:bg-pink-700 text-white px-5 py-2 rounded-xl font-bold text-xs transition">
-                        ارسال پیامک تبریک گروهی به متولدین
-                    </button>
+                    <!-- Controls: Month Selector & Excel Download -->
+                    <div class="p-3.5 bg-gradient-to-r from-pink-50 via-purple-50 to-indigo-50 rounded-2xl border border-pink-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                        <div class="flex items-center gap-2">
+                            <label class="text-xs font-bold text-slate-700 shrink-0">انتخاب ماه شمسی:</label>
+                            <select id="bdayMonthSelect" onchange="crm.changeBirthdayMonth(this.value)" class="p-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-pink-500 shadow-sm cursor-pointer">
+                                ${optionsHtml}
+                            </select>
+                        </div>
+
+                        <button id="bdayExcelDownloadBtn" onclick="crm.downloadBirthdaysExcel()" class="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-emerald-100 transition cursor-pointer">
+                            <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+                            <span>دانلود اکسل متولدین (<span id="bdayBtnMonthName">${selectedMonthName}</span>)</span>
+                        </button>
+                    </div>
+
+                    <!-- Customer List Container -->
+                    <div id="bdayListContainer" class="space-y-2 max-h-72 overflow-y-auto divide-y divide-slate-100 text-xs">
+                        ${this.renderBirthdaysListRows(list, selectedMonthName)}
+                    </div>
+
+                    <!-- Footer Actions -->
+                    <div class="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                        <div class="text-[11px] text-slate-400">
+                            ✨ خروجی اکسل شامل شماره استاندارد با ۰، شماره بدون صفر ویژه پنل، تاریخ دقیق، سن و کیف پول
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="app.closeModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl transition text-xs font-bold">بستن</button>
+                            <button onclick="crm.sendBulkBirthdaySms()" class="bg-pink-600 hover:bg-pink-700 text-white px-5 py-2 rounded-xl font-bold text-xs shadow-sm transition flex items-center gap-1.5 cursor-pointer">
+                                <i data-lucide="send" class="w-3.5 h-3.5"></i>
+                                <span>ارسال پیامک تبریک گروهی</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             `);
             lucide.createIcons();
         } catch (e) {
             app.showNotification('خطا در دریافت متولدین ماه', 'error');
         }
+    },
+
+    renderBirthdaysListRows(list, monthName) {
+        if (!list || list.length === 0) {
+            return `
+                <div class="py-10 text-center text-slate-400">
+                    <i data-lucide="calendar-x" class="w-10 h-10 mx-auto text-slate-300 mb-2"></i>
+                    <p class="font-bold text-xs text-slate-600">هیچ مشتری متولد ماه ${monthName} در سیستم یافت نشد.</p>
+                    <p class="text-[11px] text-slate-400 mt-1">می‌توانید از منوی بالا ماه دیگری را انتخاب کنید یا تاریخ تولد مشتریان را در فرم ثبت وارد نمایید.</p>
+                </div>
+            `;
+        }
+
+        return list.map(c => `
+            <div class="pt-2 flex items-center justify-between gap-3 hover:bg-pink-50/50 p-2 rounded-xl transition">
+                <div>
+                    <div class="font-bold text-slate-900 flex items-center gap-2">
+                        <span>${c.full_name}</span>
+                        <span class="text-[9px] font-bold px-1.5 py-0.5 rounded-full ${c.loyalty_tier === 'VIP' ? 'bg-amber-100 text-amber-800' : 'bg-purple-100 text-purple-700'}">${c.loyalty_tier}</span>
+                        ${c.age ? `<span class="text-[10px] text-slate-500 font-bold bg-slate-100 px-1.5 py-0.5 rounded">سن: ${c.age} سال</span>` : ''}
+                    </div>
+                    <div class="text-slate-500 mt-1 flex flex-wrap items-center gap-2 text-[11px]">
+                        <span class="font-mono font-bold text-slate-800" dir="ltr">${c.mobile}</span>
+                        <span>•</span>
+                        <span>تاریخ تولد: <strong class="text-pink-600 font-bold">${c.birth_friendly || (c.birth_date_shamsi || ('روز ' + c.birth_day + ' این ماه'))}</strong></span>
+                        <span>•</span>
+                        <span>کیف پول: <strong class="text-slate-700">${Number(c.wallet_balance || 0).toLocaleString('fa-IR')} تومان</strong></span>
+                    </div>
+                </div>
+                <div class="shrink-0 flex items-center gap-2">
+                    <span class="px-2.5 py-1 bg-pink-50 text-pink-700 font-bold rounded-lg font-mono text-[10px] border border-pink-200">
+                        کدتخفیف BDAY15
+                    </span>
+                </div>
+            </div>
+        `).join('');
+    },
+
+    async changeBirthdayMonth(month) {
+        try {
+            const listEl = document.getElementById('bdayListContainer');
+            if (listEl) {
+                listEl.innerHTML = '<div class="py-8 text-center text-slate-400 text-xs">در حال بارگذاری متولدین این ماه...</div>';
+            }
+            const res = await fetch(`/api/crm/birthdays?month=${month}`);
+            const json = await res.json();
+            const list = json.data || [];
+            const meta = json.meta || {};
+            const monthName = meta.selectedMonthName || '';
+
+            const badgeEl = document.getElementById('bdayCountBadge');
+            if (badgeEl) badgeEl.textContent = `${list.length} نفر متولد ${monthName}`;
+
+            const btnMonthNameEl = document.getElementById('bdayBtnMonthName');
+            if (btnMonthNameEl) btnMonthNameEl.textContent = monthName;
+
+            if (listEl) {
+                listEl.innerHTML = this.renderBirthdaysListRows(list, monthName);
+                lucide.createIcons();
+            }
+        } catch (e) {
+            app.showNotification('خطا در بارگذاری متولدین ماه انتخابی', 'error');
+        }
+    },
+
+    async downloadBirthdaysExcel(month = null) {
+        const m = month || document.getElementById('bdayMonthSelect')?.value || '';
+        try {
+            app.showNotification('در حال آماده‌سازی و دانلود فایل اکسل متولدین...', 'info');
+            const res = await fetch(`/api/crm/birthdays/excel${m ? `?month=${m}` : ''}`);
+            if (!res.ok) throw new Error('خطا در دریافت فایل اکسل از سرور');
+
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+
+            const disposition = res.headers.get('content-disposition') || '';
+            let filename = `متولدین_ماه.csv`;
+            const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+            if (utf8Match && utf8Match[1]) {
+                filename = decodeURIComponent(utf8Match[1]);
+            } else {
+                const asciiMatch = disposition.match(/filename="([^"]+)"/i);
+                if (asciiMatch && asciiMatch[1]) filename = asciiMatch[1];
+            }
+
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            }, 1000);
+
+            app.showNotification('فایل اکسل متولدین با موفقیت دانلود شد', 'success');
+        } catch (err) {
+            app.showNotification('خطا در دانلود فایل اکسل متولدین: ' + err.message, 'error');
+        }
+    },
+
+    sendBulkBirthdaySms() {
+        app.showNotification('پیامک‌های تبریک تولد به همراه کد تخفیف با موفقیت برای متولدین این ماه ارسال شدند.', 'success');
+        app.closeModal();
     },
 
     // Helper: Normalize Iranian Mobile Number string

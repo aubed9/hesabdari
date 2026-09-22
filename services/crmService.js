@@ -1,7 +1,7 @@
 // CRM, Customer 360, Loyalty, RFM & Wallet Service
 const db = require('../db/database');
 const { normalizeIranianMobile, formatMobileForExcel, formatMobileWithoutZero, validateIranianMobile } = require('../utils/textUtils');
-const { toJalaliDateString, toJalaliFriendly, getCurrentJalaliDate, parseJalaliInputToGregorian } = require('../utils/dateUtils');
+const { toJalaliDateString, toJalaliFriendly, getCurrentJalaliDate, parseJalaliInputToGregorian, getJalaliMonthName, PERSIAN_MONTH_NAMES } = require('../utils/dateUtils');
 
 const crmService = {
     // Get all customers with RFM and summary metrics
@@ -227,16 +227,25 @@ const crmService = {
         return { success: true, processedCount: customers.length };
     },
 
-    // Customers with Birthday in Current Shamsi Month (for Promo Campaign)
-    getUpcomingBirthdays() {
+    // Customers with Birthday in Shamsi Month (Default: Current Month, or Specific Month 1-12)
+    getUpcomingBirthdays(selectedMonth = null) {
         const currentJ = getCurrentJalaliDate();
-        const currentJalaliMonth = currentJ.month;
-        const currentMonthName = currentJ.monthName;
+        let targetMonth = selectedMonth ? Number(selectedMonth) : currentJ.month;
+        if (isNaN(targetMonth) || targetMonth < 1 || targetMonth > 12) {
+            targetMonth = currentJ.month;
+        }
+        const targetMonthName = getJalaliMonthName(targetMonth);
 
         const allWithBirth = db.prepare(`
-            SELECT id, full_name, mobile, birth_date, loyalty_tier, wallet_balance
-            FROM customers
-            WHERE is_active = 1 AND birth_date IS NOT NULL AND TRIM(birth_date) != ''
+            SELECT 
+                c.id, c.referral_code, c.full_name, c.mobile, c.birth_date, 
+                c.loyalty_tier, c.loyalty_points, c.wallet_balance, c.skin_type, c.hair_preferences, c.notes,
+                COUNT(o.id) AS total_orders_count,
+                COALESCE(SUM(o.total_amount), 0) AS total_spent
+            FROM customers c
+            LEFT JOIN orders o ON c.id = o.customer_id AND o.status = 'COMPLETED'
+            WHERE c.is_active = 1 AND c.birth_date IS NOT NULL AND TRIM(c.birth_date) != ''
+            GROUP BY c.id
         `).all();
 
         const results = [];
@@ -244,19 +253,29 @@ const crmService = {
             const jDate = toJalaliDateString(c.birth_date);
             if (!jDate || !jDate.includes('/')) continue;
             const [jy, jm, jd] = jDate.split('/').map(Number);
-            if (jm === currentJalaliMonth) {
+            if (isNaN(jy) || isNaN(jm) || isNaN(jd) || jy < 1300 || jy > 1450) continue;
+            if (jm === targetMonth) {
+                const age = (currentJ.year >= jy && jy > 1300) ? (currentJ.year - jy) : null;
                 results.push({
                     id: c.id,
+                    customer_code: c.referral_code || ('CUST-' + c.id),
                     full_name: c.full_name,
                     mobile: c.mobile,
                     birth_date: c.birth_date,
                     birth_date_shamsi: jDate,
-                    birth_friendly: `${jd} ${currentMonthName} ${jy}`,
-                    birth_day: jd,
+                    birth_friendly: `${jd} ${targetMonthName} ${jy}`,
+                    birth_year: jy,
                     birth_month: jm,
-                    birth_month_name: currentMonthName,
-                    loyalty_tier: c.loyalty_tier,
-                    wallet_balance: c.wallet_balance
+                    birth_day: jd,
+                    birth_month_name: targetMonthName,
+                    age,
+                    loyalty_tier: c.loyalty_tier || 'BRONZE',
+                    loyalty_points: Number(c.loyalty_points || 0),
+                    wallet_balance: Number(c.wallet_balance || 0),
+                    total_orders_count: Number(c.total_orders_count || 0),
+                    total_spent: Number(c.total_spent || 0),
+                    skin_type: c.skin_type || '',
+                    notes: c.notes || c.hair_preferences || ''
                 });
             }
         }
@@ -638,6 +657,13 @@ const crmService = {
                 filtered = all.filter(c => c.loyalty_tier === 'VIP' || c.loyalty_tier === 'GOLD');
                 break;
 
+            case 'birthdays': // متولدین ماه جاری
+            case 'birthdays_current':
+                const curMName = getCurrentJalaliDate().monthName;
+                segmentTitle = `متولدین ماه جاری (${curMName})`;
+                filtered = this.getUpcomingBirthdays();
+                break;
+
             case 'all': // کل مشتریان
             default:
                 segmentTitle = 'کل مشتریان فروشگاه';
@@ -653,8 +679,79 @@ const crmService = {
         };
     },
 
+    // Generate Excel-compatible CSV for customers born in a Shamsi month with UTF-8 BOM
+    generateBirthdaysExcelCsv(selectedMonth = null) {
+        const currentJ = getCurrentJalaliDate();
+        let targetMonth = selectedMonth ? Number(selectedMonth) : currentJ.month;
+        if (isNaN(targetMonth) || targetMonth < 1 || targetMonth > 12) {
+            targetMonth = currentJ.month;
+        }
+        const targetMonthName = getJalaliMonthName(targetMonth);
+        const customers = this.getUpcomingBirthdays(targetMonth);
+
+        const headers = [
+            'ردیف',
+            'کد مشتری',
+            'نام و نام خانوادگی',
+            'شماره همراه (اکسل)',
+            'شماره بدون صفر (ویژه پنل پیامک)',
+            'تاریخ تولد شمسی',
+            'روز تولد',
+            'ماه تولد',
+            'سن تقریبی (سال)',
+            'سطح وفاداری',
+            'مانده کیف پول (تومان)',
+            'امتیاز باشگاه',
+            'تعداد کل سفارش‌ها',
+            'مجموع خرید (تومان)',
+            'نوع پوست',
+            'ترجیحات مو / توضیحات'
+        ];
+
+        let csv = '\uFEFF' + headers.join(',') + '\r\n';
+
+        customers.forEach((c, idx) => {
+            const excelMobile = formatMobileForExcel(c.mobile);
+            const noZeroMobile = formatMobileWithoutZero(c.mobile);
+            const row = [
+                idx + 1,
+                `"${(c.customer_code || ('CUST-' + c.id)).replace(/"/g, '""')}"`,
+                `"${(c.full_name || '').replace(/"/g, '""')}"`,
+                excelMobile,
+                `"${noZeroMobile}"`,
+                `"${c.birth_date_shamsi || '-'}"`,
+                c.birth_day || '-',
+                `"${targetMonthName}"`,
+                c.age !== null && c.age !== undefined ? c.age : '-',
+                `"${c.loyalty_tier || 'BRONZE'}"`,
+                Number(c.wallet_balance || 0),
+                Number(c.loyalty_points || 0),
+                Number(c.total_orders_count || 0),
+                Number(c.total_spent || 0),
+                `"${(c.skin_type || '-').replace(/"/g, '""')}"`,
+                `"${(c.notes || '-').replace(/"/g, '""')}"`
+            ];
+            csv += row.join(',') + '\r\n';
+        });
+
+        const asciiFallback = `birthdays_month_${targetMonth}_${currentJ.year}.csv`;
+        const filename = `متولدین_${targetMonthName}_${currentJ.year}.csv`;
+        return {
+            month: targetMonth,
+            monthName: targetMonthName,
+            count: customers.length,
+            csv,
+            filename,
+            asciiFallback
+        };
+    },
+
     // Generate Excel-compatible CSV for customer segment with UTF-8 BOM
     generateSegmentExcelCsv(segmentKey) {
+        if (segmentKey === 'birthdays' || segmentKey === 'birthdays_current') {
+            return this.generateBirthdaysExcelCsv();
+        }
+
         const { segmentTitle, customers } = this.getSegmentCustomers(segmentKey);
 
         const headers = [
