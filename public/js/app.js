@@ -49,14 +49,6 @@ const app = {
         }
     },
 
-    async quickLogin(role) {
-        if (role === 'manager') {
-            await this.login('manager', '123456');
-        } else {
-            await this.login('admin', '123456');
-        }
-    },
-
     async handleLoginForm(e) {
         e.preventDefault();
         const username = document.getElementById('loginUsernameInput')?.value;
@@ -167,6 +159,39 @@ const app = {
                 opts.minute = '2-digit';
             }
             return new Intl.DateTimeFormat('fa-IR-u-ca-persian', opts).format(d);
+        } catch (e) {
+            return dateStr;
+        }
+    },
+
+    formatBirthDateFa(dateStr) {
+        if (!dateStr || dateStr === '-') return 'ثبت نشده';
+        try {
+            const clean = String(dateStr).trim().split('T')[0];
+            const parts = clean.split(/[-/]/);
+            if (parts.length === 3 && Number(parts[0]) >= 1300 && Number(parts[0]) <= 1450) {
+                const months = ['', 'فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
+                return `${Number(parts[2])} ${months[Number(parts[1])] || ''} ${parts[0]}`;
+            }
+            const d = new Date(dateStr);
+            if (isNaN(d.getTime())) return dateStr;
+            return new Intl.DateTimeFormat('fa-IR-u-ca-persian', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
+        } catch (e) {
+            return dateStr;
+        }
+    },
+
+    formatBirthDateShortFa(dateStr) {
+        if (!dateStr || dateStr === '-') return '-';
+        try {
+            const clean = String(dateStr).trim().split('T')[0];
+            const parts = clean.split(/[-/]/);
+            if (parts.length === 3 && Number(parts[0]) >= 1300 && Number(parts[0]) <= 1450) {
+                return `${parts[0]}/${String(parts[1]).padStart(2, '0')}/${String(parts[2]).padStart(2, '0')}`;
+            }
+            const d = new Date(dateStr);
+            if (isNaN(d.getTime())) return dateStr;
+            return new Intl.DateTimeFormat('fa-IR-u-ca-persian', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
         } catch (e) {
             return dateStr;
         }
@@ -499,6 +524,11 @@ const app = {
             const res = await fetch('/api/products');
             const json = await res.json();
             const products = json.data || [];
+            const summary = json.summary || {
+                grand_total_stock: products.reduce((sum, p) => sum + (p.total_stock || 0), 0),
+                grand_total_cost_value: products.reduce((sum, p) => sum + (p.total_cost_value || 0), 0),
+                grand_total_retail_value: products.reduce((sum, p) => sum + (p.total_retail_value || 0), 0)
+            };
 
             container.innerHTML = `
                 <div class="space-y-6">
@@ -506,14 +536,61 @@ const app = {
                         <div>
                             <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
                                 <i data-lucide="palette" class="w-5 h-5 text-purple-600"></i>
-                                <span>کاتالوگ تخصصی محصولات، برندها و واریانت‌های آرایشی</span>
+                                <span>کاتالوگ تخصصی محصولات، برندها و ارزش‌گذاری موجودی</span>
                             </h2>
-                            <p class="text-xs text-slate-500">شامل مشخصات رنگ/شید، نوع پوست، فینیش، بارکد مجزا و قیمت‌گذاری مارک‌آپ و مارجین</p>
+                            <p class="text-xs text-slate-500">شامل ارزش کل انبار، بهای تمام شده، قیمت مصرف‌کننده، موجودی لحظه‌ای و بارکد واریانت‌ها</p>
                         </div>
                         <button onclick="app.openNewProductModal()" class="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-purple-100 transition shrink-0">
                             <i data-lucide="plus-circle" class="w-4 h-4"></i>
                             <span>+ افزودن کالای جدید به انبار و صندوق</span>
                         </button>
+                    </div>
+
+                    <!-- Inventory Valuation KPI Cards -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        <div class="p-4 bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-200/80 rounded-2xl shadow-sm">
+                            <div class="text-[11px] font-bold text-purple-800 flex items-center gap-1.5">
+                                <i data-lucide="vault" class="w-4 h-4 text-purple-600"></i>
+                                <span>ارزش کل انبار (بهای خرید / تمام شده)</span>
+                            </div>
+                            <div class="text-lg font-black font-mono text-purple-950 mt-2">
+                                ${Number(summary.grand_total_cost_value || 0).toLocaleString('fa-IR')} <span class="text-xs font-normal text-purple-700">تومان</span>
+                            </div>
+                            <div class="text-[10px] text-purple-600 mt-1">سرمایه نقدی خوابیده در موجودی کالاها</div>
+                        </div>
+
+                        <div class="p-4 bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200/80 rounded-2xl shadow-sm">
+                            <div class="text-[11px] font-bold text-emerald-800 flex items-center gap-1.5">
+                                <i data-lucide="tag" class="w-4 h-4 text-emerald-600"></i>
+                                <span>ارزش کل فروشگاهی (قیمت مصرف‌کننده)</span>
+                            </div>
+                            <div class="text-lg font-black font-mono text-emerald-950 mt-2">
+                                ${Number(summary.grand_total_retail_value || 0).toLocaleString('fa-IR')} <span class="text-xs font-normal text-emerald-700">تومان</span>
+                            </div>
+                            <div class="text-[10px] text-emerald-600 mt-1">درآمد ناخالص در صورت فروش تمام موجودی</div>
+                        </div>
+
+                        <div class="p-4 bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200/80 rounded-2xl shadow-sm">
+                            <div class="text-[11px] font-bold text-amber-800 flex items-center gap-1.5">
+                                <i data-lucide="trending-up" class="w-4 h-4 text-amber-600"></i>
+                                <span>سود ناخالص بالقوه کل انبار</span>
+                            </div>
+                            <div class="text-lg font-black font-mono text-amber-950 mt-2">
+                                ${Number(Math.max(0, (summary.grand_total_retail_value || 0) - (summary.grand_total_cost_value || 0))).toLocaleString('fa-IR')} <span class="text-xs font-normal text-amber-700">تومان</span>
+                            </div>
+                            <div class="text-[10px] text-amber-600 mt-1">مارجین سود ریالی اقلام موجود در فروشگاه</div>
+                        </div>
+
+                        <div class="p-4 bg-gradient-to-br from-blue-50 to-sky-50 border border-blue-200/80 rounded-2xl shadow-sm">
+                            <div class="text-[11px] font-bold text-blue-800 flex items-center gap-1.5">
+                                <i data-lucide="boxes" class="w-4 h-4 text-blue-600"></i>
+                                <span>تعداد کل اقلام موجود در انبار</span>
+                            </div>
+                            <div class="text-lg font-black font-mono text-blue-950 mt-2">
+                                ${Number(summary.grand_total_stock || 0).toLocaleString('fa-IR')} <span class="text-xs font-normal text-blue-700">عدد کالا</span>
+                            </div>
+                            <div class="text-[10px] text-blue-600 mt-1">شامل ${products.length} عنوان محصول فعال</div>
+                        </div>
                     </div>
 
                     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -523,9 +600,10 @@ const app = {
                                     <th class="p-3.5">عنوان کالا</th>
                                     <th class="p-3.5">برند و کشور</th>
                                     <th class="p-3.5">دسته‌بندی</th>
-                                    <th class="p-3.5">سازگاری با پوست</th>
-                                    <th class="p-3.5 text-center">تعداد واریانت / شید</th>
+                                    <th class="p-3.5 text-center">واریانت‌ها</th>
                                     <th class="p-3.5 text-center">موجودی انبار</th>
+                                    <th class="p-3.5">ارزش خرید (بهای تمام شده)</th>
+                                    <th class="p-3.5">ارزش فروشگاهی</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100">
@@ -540,9 +618,16 @@ const app = {
                                             <div class="text-[10px] text-slate-400">${p.country_of_origin || 'خارجی'}</div>
                                         </td>
                                         <td class="p-3.5 text-slate-700">${p.category_name}</td>
-                                        <td class="p-3.5 text-slate-600">${p.skin_type || 'انواع پوست'}</td>
                                         <td class="p-3.5 text-center font-bold text-purple-700 font-mono">${p.variant_count} واریانت</td>
-                                        <td class="p-3.5 text-center font-bold font-mono ${p.total_stock > 5 ? 'text-emerald-600' : 'text-rose-600'}">${p.total_stock} عدد</td>
+                                        <td class="p-3.5 text-center font-bold font-mono ${p.total_stock > 5 ? 'text-emerald-600' : 'text-rose-600'}">
+                                            ${p.total_stock} عدد
+                                        </td>
+                                        <td class="p-3.5 font-bold font-mono text-slate-800">
+                                            ${Number(p.total_cost_value || 0).toLocaleString('fa-IR')} ت
+                                        </td>
+                                        <td class="p-3.5 font-bold font-mono text-emerald-700">
+                                            ${Number(p.total_retail_value || 0).toLocaleString('fa-IR')} ت
+                                        </td>
                                     </tr>
                                 `).join('')}
                             </tbody>

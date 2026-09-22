@@ -22,10 +22,10 @@ const accounting = {
                     </div>
 
                     <div class="flex items-center gap-2">
-                        <a href="/api/export/ledger" target="_blank" class="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition">
-                            <i data-lucide="sheet" class="w-4 h-4 text-emerald-600"></i>
-                            <span>خروجی اکسل دفاتر</span>
-                        </a>
+                        <button onclick="accounting.openDateRangeExportModal()" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition cursor-pointer">
+                            <i data-lucide="sheet" class="w-4 h-4"></i>
+                            <span>خروجی اکسل با انتخاب دوره و بازه زمانی</span>
+                        </button>
                         <button onclick="accounting.openExpenseModal()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition">
                             <i data-lucide="plus-circle" class="w-4 h-4"></i>
                             <span>ثبت هزینه جدید</span>
@@ -1152,5 +1152,139 @@ const accounting = {
         } catch (e) {
             app.showNotification('خطا در به‌روزرسانی سند', 'error');
         }
+    },
+
+    openDateRangeExportModal() {
+        app.openModal(`
+            <div class="space-y-4 text-xs">
+                <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                            <i data-lucide="file-spreadsheet" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-sm text-slate-900">خروجی اکسل گزارشات مالی با انتخاب بازه زمانی</h3>
+                            <p class="text-[11px] text-slate-500">انتخاب دوره زمانی دلخواه جهت استخراج اسناد، تراز دفاتر و صورت‌های مالی</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Presets -->
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">انتخاب سریع دوره زمانی:</label>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <button type="button" onclick="accounting.setExportPeriodPreset('TODAY')" class="p-2 bg-slate-50 hover:bg-emerald-50 hover:text-emerald-800 border border-slate-200 rounded-xl font-bold transition text-right cursor-pointer">
+                            📅 امروز
+                        </button>
+                        <button type="button" onclick="accounting.setExportPeriodPreset('LAST_7')" class="p-2 bg-slate-50 hover:bg-emerald-50 hover:text-emerald-800 border border-slate-200 rounded-xl font-bold transition text-right cursor-pointer">
+                            🗓️ ۷ روز گذشته
+                        </button>
+                        <button type="button" onclick="accounting.setExportPeriodPreset('LAST_30')" class="p-2 bg-slate-50 hover:bg-emerald-50 hover:text-emerald-800 border border-slate-200 rounded-xl font-bold transition text-right cursor-pointer">
+                            📆 ۳۰ روز گذشته
+                        </button>
+                        <button type="button" onclick="accounting.setExportPeriodPreset('THIS_MONTH')" class="p-2 bg-emerald-50 text-emerald-900 border border-emerald-300 rounded-xl font-bold transition text-right cursor-pointer">
+                            🌙 ماه جاری
+                        </button>
+                        <button type="button" onclick="accounting.setExportPeriodPreset('THIS_QUARTER')" class="p-2 bg-slate-50 hover:bg-emerald-50 hover:text-emerald-800 border border-slate-200 rounded-xl font-bold transition text-right cursor-pointer">
+                            📊 فصل جاری (۳ ماهه)
+                        </button>
+                        <button type="button" onclick="accounting.setExportPeriodPreset('THIS_YEAR')" class="p-2 bg-slate-50 hover:bg-emerald-50 hover:text-emerald-800 border border-slate-200 rounded-xl font-bold transition text-right cursor-pointer">
+                            📈 سال مالی جاری
+                        </button>
+                        <button type="button" onclick="accounting.setExportPeriodPreset('ALL')" class="p-2 bg-slate-50 hover:bg-emerald-50 hover:text-emerald-800 border border-slate-200 rounded-xl font-bold transition text-right col-span-2 cursor-pointer">
+                            📂 کل دوره مالی از ابتدا
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Date Range Custom Inputs -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-50 border border-slate-200 rounded-2xl">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">از تاریخ (شمسی یا میلادی):</label>
+                        <input type="text" id="accExpStartDate" placeholder="مثال: ۱۴۰۳/۰۱/۰۱ یا 2026-01-01" class="w-full p-2.5 bg-white border border-slate-200 rounded-xl font-mono text-center outline-none">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">تا تاریخ (شمسی یا میلادی):</label>
+                        <input type="text" id="accExpEndDate" placeholder="مثال: ۱۴۰۳/۱۲/۲۹ یا 2026-12-31" class="w-full p-2.5 bg-white border border-slate-200 rounded-xl font-mono text-center outline-none">
+                    </div>
+                </div>
+
+                <!-- Report Type -->
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">نوع سرفصل یا گزارش مالی:</label>
+                    <select id="accExpReportType" class="w-full p-2.5 bg-white border border-slate-200 rounded-xl font-bold outline-none">
+                        <option value="all">📑 دفتر کل و کلیه اسناد حسابداری دوبل (جامع ترین حالت)</option>
+                        <option value="journals">📊 فقط ریز اسناد حسابداری و آرتیکل‌های تراز شده</option>
+                        <option value="pnl">💰 صورت سود و زیان دوره‌ای (فروش، بهای تمام شده، سود ناخالص و خالص)</option>
+                        <option value="expenses">🧾 ریز تفکیکی کلیه هزینه‌ها و قبوض در این بازه</option>
+                    </select>
+                </div>
+
+                <div class="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                    <button onclick="app.closeModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl transition">انصراف</button>
+                    <button onclick="accounting.downloadExcelReport()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-md transition cursor-pointer">
+                        <i data-lucide="download" class="w-4 h-4"></i>
+                        <span>دریافت فایل اکسل (Excel CSV)</span>
+                    </button>
+                </div>
+            </div>
+        `);
+        lucide.createIcons();
+        this.setExportPeriodPreset('THIS_MONTH');
+    },
+
+    setExportPeriodPreset(preset) {
+        const startEl = document.getElementById('accExpStartDate');
+        const endEl = document.getElementById('accExpEndDate');
+        if (!startEl || !endEl) return;
+
+        const now = new Date();
+        const formatDate = (d) => d.toISOString().split('T')[0];
+
+        if (preset === 'TODAY') {
+            const today = formatDate(now);
+            startEl.value = today;
+            endEl.value = today;
+        } else if (preset === 'LAST_7') {
+            const past = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            startEl.value = formatDate(past);
+            endEl.value = formatDate(now);
+        } else if (preset === 'LAST_30') {
+            const past = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+            startEl.value = formatDate(past);
+            endEl.value = formatDate(now);
+        } else if (preset === 'THIS_MONTH') {
+            const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+            startEl.value = formatDate(firstDay);
+            endEl.value = formatDate(now);
+        } else if (preset === 'THIS_QUARTER') {
+            const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+            const firstDay = new Date(now.getFullYear(), quarterStartMonth, 1);
+            startEl.value = formatDate(firstDay);
+            endEl.value = formatDate(now);
+        } else if (preset === 'THIS_YEAR') {
+            const firstDay = new Date(now.getFullYear(), 0, 1);
+            startEl.value = formatDate(firstDay);
+            endEl.value = formatDate(now);
+        } else if (preset === 'ALL') {
+            startEl.value = '';
+            endEl.value = '';
+        }
+    },
+
+    downloadExcelReport() {
+        const startDate = document.getElementById('accExpStartDate')?.value?.trim() || '';
+        const endDate = document.getElementById('accExpEndDate')?.value?.trim() || '';
+        const reportType = document.getElementById('accExpReportType')?.value || 'all';
+
+        const params = new URLSearchParams();
+        if (startDate) params.set('startDate', startDate);
+        if (endDate) params.set('endDate', endDate);
+        if (reportType) params.set('reportType', reportType);
+
+        const url = `/api/accounting/export-excel?${params.toString()}`;
+        window.open(url, '_blank');
+        app.showNotification('فایل اکسل گزارش مالی با موفقیت استخراج و دانلود شد.', 'success');
+        app.closeModal();
     }
 };

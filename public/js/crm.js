@@ -224,7 +224,10 @@ const crm = {
                             <td class="p-3.5">
                                 <div class="font-bold text-slate-900">${c.full_name}</div>
                                 <div class="text-[11px] text-slate-400 font-mono">${c.mobile}</div>
-                                ${c.skin_type ? `<span class="text-[9px] text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">پوست: ${c.skin_type}</span>` : ''}
+                                <div class="flex flex-wrap gap-1 mt-1">
+                                    ${c.skin_type ? `<span class="text-[9px] text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">پوست: ${c.skin_type}</span>` : ''}
+                                    ${c.birth_date ? `<span class="text-[9px] text-pink-600 bg-pink-50 px-1.5 py-0.5 rounded font-mono" title="تاریخ تولد (شمسی)">🎂 ${app.formatBirthDateShortFa ? app.formatBirthDateShortFa(c.birth_date) : c.birth_date}</span>` : ''}
+                                </div>
                             </td>
                             <td class="p-3.5">
                                 <span class="px-2 py-0.5 rounded-full font-bold text-[10px] ${
@@ -376,6 +379,7 @@ const crm = {
             'نام و نام خانوادگی',
             'شماره همراه',
             'شماره بدون صفر (ویژه پنل)',
+            'تاریخ تولد (شمسی)',
             'دسته‌بندی / سگمنت',
             'سطح وفاداری',
             'مانده کیف پول (تومان)',
@@ -407,6 +411,7 @@ const crm = {
             const mobWithZero = mob;
             const mobWithoutZero = mobWithZero.startsWith('0') ? mobWithZero.slice(1) : mobWithZero;
             const excelMobile = mobWithZero ? `="${mobWithZero}"` : '""';
+            const shamsiBirth = c.birth_date ? (app.formatBirthDateShortFa ? app.formatBirthDateShortFa(c.birth_date) : c.birth_date) : '-';
 
             const row = [
                 idx + 1,
@@ -414,6 +419,7 @@ const crm = {
                 `"${(c.full_name || '').replace(/"/g, '""')}"`,
                 excelMobile,
                 `"${mobWithoutZero}"`,
+                `"${shamsiBirth}"`,
                 `"${(c.rfm_segment || 'عادی').replace(/"/g, '""')}"`,
                 `"${c.loyalty_tier || 'BRONZE'}"`,
                 Number(c.wallet_balance || 0),
@@ -516,7 +522,7 @@ const crm = {
                                     <span>${c.full_name}</span>
                                     <span class="text-xs bg-white/30 px-2 py-0.5 rounded-full">${c.loyalty_tier}</span>
                                 </h3>
-                                <p class="text-xs text-purple-100 mt-0.5 font-mono">${c.mobile} | عضو از: ${c.membership_date}</p>
+                                <p class="text-xs text-purple-100 mt-0.5 font-mono">${c.mobile} | عضو از: ${c.membership_date_shamsi || c.membership_date}</p>
                             </div>
                         </div>
 
@@ -532,19 +538,28 @@ const crm = {
                         </div>
                     </div>
 
-                    <!-- Cosmetic Preferences & Favorite Brand -->
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                            <span class="text-slate-400">نوع پوست:</span>
-                            <div class="font-bold text-slate-800 mt-0.5">${c.skin_type || 'ثبت نشده'}</div>
+                    <!-- Cosmetic Preferences & Favorite Brand & Birth Date -->
+                    <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                        <div class="p-3 bg-pink-50/60 rounded-xl border border-pink-200">
+                            <span class="text-pink-600 font-medium text-[11px] flex items-center gap-1">
+                                <i data-lucide="cake" class="w-3.5 h-3.5"></i>
+                                <span>تاریخ تولد (شمسی):</span>
+                            </span>
+                            <div class="font-bold text-pink-900 mt-1 text-xs">
+                                ${c.birth_date_friendly || (c.birth_date ? (app.formatBirthDateFa ? app.formatBirthDateFa(c.birth_date) : c.birth_date) : 'ثبت نشده')}
+                            </div>
                         </div>
                         <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                            <span class="text-slate-400">ترجیحات مو:</span>
-                            <div class="font-bold text-slate-800 mt-0.5">${c.hair_preferences || 'ثبت نشده'}</div>
+                            <span class="text-slate-400 text-[11px]">نوع پوست:</span>
+                            <div class="font-bold text-slate-800 mt-1 text-xs">${c.skin_type || 'ثبت نشده'}</div>
                         </div>
                         <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                            <span class="text-slate-400">برند محبوب مشتری:</span>
-                            <div class="font-bold text-purple-700 mt-0.5">${c.favoriteBrand}</div>
+                            <span class="text-slate-400 text-[11px]">ترجیحات مو:</span>
+                            <div class="font-bold text-slate-800 mt-1 text-xs">${c.hair_preferences || 'ثبت نشده'}</div>
+                        </div>
+                        <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                            <span class="text-slate-400 text-[11px]">برند محبوب مشتری:</span>
+                            <div class="font-bold text-purple-700 mt-1 text-xs">${c.favoriteBrand}</div>
                         </div>
                     </div>
 
@@ -638,18 +653,18 @@ const crm = {
             app.openModal(`
                 <h3 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2">
                     <i data-lucide="gift" class="w-5 h-5 text-pink-600"></i>
-                    <span>متولدین ماه جاری (کمپین تخفیف تولد)</span>
+                    <span>متولدین ماه جاری (${list.length > 0 && list[0].birth_month_name ? 'ماه ' + list[0].birth_month_name : 'تقویم شمسی'})</span>
                 </h3>
-                <p class="text-xs text-slate-500 mb-4">برای این مشتریان کد تخفیف اختصاصی تولد و پیامک تبریک آماده ارسال است:</p>
+                <p class="text-xs text-slate-500 mb-4">برای این مشتریان کد تخفیف اختصاصی تولد و پیامک تبریک بر اساس تاریخ تولد شمسی آماده ارسال است:</p>
 
                 <div class="space-y-3 max-h-72 overflow-y-auto divide-y divide-slate-100 text-xs">
                     ${list.map(c => `
                         <div class="pt-2.5 flex items-center justify-between">
                             <div>
                                 <div class="font-bold text-slate-900">${c.full_name}</div>
-                                <div class="text-slate-500 mt-0.5">${c.mobile} | متولد: روز ${c.birth_day} این ماه</div>
+                                <div class="text-slate-500 mt-0.5">${c.mobile} | متولد: <strong class="text-pink-600">${c.birth_friendly || (c.birth_date_shamsi || ('روز ' + c.birth_day + ' این ماه'))}</strong></div>
                             </div>
-                            <span class="px-2.5 py-1 bg-pink-50 text-pink-700 font-bold rounded-lg">
+                            <span class="px-2.5 py-1 bg-pink-50 text-pink-700 font-bold rounded-lg font-mono">
                                 کدتخفیف BDAY15
                             </span>
                         </div>
@@ -697,8 +712,8 @@ const crm = {
                     </div>
 
                     <div>
-                        <label class="block font-bold text-slate-700 mb-1">تاریخ تولد</label>
-                        <input type="date" id="newCustBirth" class="w-full p-2.5 border border-slate-200 rounded-xl">
+                        <label class="block font-bold text-slate-700 mb-1">تاریخ تولد (شمسی)</label>
+                        <input type="text" id="newCustBirth" placeholder="مثال: ۱۳۷۱/۰۶/۲۱" dir="ltr" class="w-full p-2.5 border border-slate-200 rounded-xl font-mono text-center">
                     </div>
                 </div>
 
@@ -1010,6 +1025,10 @@ const crm = {
                             <span>💰 دارای مانده کیف پول</span>
                             <span class="text-[9px] bg-blue-100 px-1.5 py-0.5 rounded text-blue-800">خرج اعتبار</span>
                         </button>
+                        <button type="button" onclick="crm.applySmsPreset('BIRTHDAY')" id="smsPreset_BIRTHDAY" class="sms-preset-btn p-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-pink-50 text-slate-700 font-bold text-[11px] text-right transition cursor-pointer flex items-center justify-between col-span-2 sm:col-span-1">
+                            <span>🎂 متولدین این ماه (تولد)</span>
+                            <span class="text-[9px] bg-pink-100 px-1.5 py-0.5 rounded text-pink-800">شمسی</span>
+                        </button>
                     </div>
                 </div>
 
@@ -1091,7 +1110,7 @@ const crm = {
                         </label>
                         <label class="inline-flex items-center gap-1.5 cursor-pointer font-bold text-slate-700">
                             <input type="checkbox" id="smsFilterBirthMonth" onchange="crm.applySmsFilters()" class="w-4 h-4 text-purple-600 rounded">
-                            <span>فقط متولدین این ماه</span>
+                            <span>فقط متولدین این ماه (شمسی)</span>
                         </label>
                     </div>
                 </div>
@@ -1133,6 +1152,7 @@ const crm = {
                             <tr>
                                 <th class="p-2">شماره همراه</th>
                                 <th class="p-2">نام و نام خانوادگی</th>
+                                <th class="p-2">تاریخ تولد (شمسی)</th>
                                 <th class="p-2">گروه دفترچه تلفن</th>
                                 <th class="p-2">سطح</th>
                                 <th class="p-2">مانده کیف پول</th>
@@ -1141,7 +1161,7 @@ const crm = {
                         </thead>
                         <tbody id="smsPreviewTableBody" class="divide-y divide-slate-100 bg-white">
                             <tr>
-                                <td colspan="6" class="p-3 text-center text-slate-400">در حال دریافت پیش‌نمایش...</td>
+                                <td colspan="7" class="p-3 text-center text-slate-400">در حال دریافت پیش‌نمایش...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -1216,6 +1236,9 @@ const crm = {
         } else if (presetKey === 'WALLET') {
             if (wallet) wallet.checked = true;
             if (group) group.value = 'مشتریان دارای مانده کیف پول';
+        } else if (presetKey === 'BIRTHDAY') {
+            if (bmonth) bmonth.checked = true;
+            if (group) group.value = 'کمپین تخفیف متولدین این ماه';
         } else {
             if (group) group.value = 'باشگاه مشتریان کیهان بیوتی';
         }
@@ -1278,12 +1301,13 @@ const crm = {
             const tbody = document.getElementById('smsPreviewTableBody');
             if (tbody) {
                 if (contacts.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-slate-400">هیچ مشتری با این شرایط یافت نشد. فیلترها را تغییر دهید.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-slate-400">هیچ مشتری با این شرایط یافت نشد. فیلترها را تغییر دهید.</td></tr>';
                 } else {
                     tbody.innerHTML = contacts.slice(0, 10).map(c => `
                         <tr class="hover:bg-slate-50 transition">
                             <td class="p-2 font-mono font-bold text-purple-700">${c.mobile}</td>
                             <td class="p-2 font-bold text-slate-800">${c.fullName}</td>
+                            <td class="p-2 font-mono text-pink-600">${c.birthDate || '-'}</td>
                             <td class="p-2 text-slate-600">${c.groupName}</td>
                             <td class="p-2"><span class="px-1.5 py-0.5 rounded text-[10px] bg-purple-50 text-purple-700 font-bold">${c.tier}</span></td>
                             <td class="p-2 font-mono text-emerald-600 font-bold">${c.walletBalance.toLocaleString('fa-IR')} ت</td>

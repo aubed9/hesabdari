@@ -110,9 +110,62 @@ const inventory = {
             const json = await res.json();
             const items = json.data || [];
 
+            const totalStockCount = items.reduce((acc, it) => acc + (it.total_stock || 0), 0);
+            const totalCostVal = items.reduce((acc, it) => acc + (it.total_cost_value || 0), 0);
+            const totalRetailVal = items.reduce((acc, it) => acc + (it.total_retail_value || 0), 0);
+            const totalPotentialProfit = Math.max(0, totalRetailVal - totalCostVal);
+
             container.innerHTML = `
-                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div class="overflow-x-auto">
+                <div class="space-y-4">
+                    <!-- Valuation KPI Cards -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        <div class="p-4 bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-200/80 rounded-2xl shadow-sm">
+                            <div class="text-[11px] font-bold text-purple-800 flex items-center gap-1.5">
+                                <i data-lucide="vault" class="w-4 h-4 text-purple-600"></i>
+                                <span>ارزش کل انبار (بهای تمام شده / خرید)</span>
+                            </div>
+                            <div class="text-lg font-black font-mono text-purple-950 mt-2">
+                                ${Number(totalCostVal).toLocaleString('fa-IR')} <span class="text-xs font-normal text-purple-700">تومان</span>
+                            </div>
+                            <div class="text-[10px] text-purple-600 mt-1">سرمایه نقدی خوابیده در انبار</div>
+                        </div>
+
+                        <div class="p-4 bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200/80 rounded-2xl shadow-sm">
+                            <div class="text-[11px] font-bold text-emerald-800 flex items-center gap-1.5">
+                                <i data-lucide="tag" class="w-4 h-4 text-emerald-600"></i>
+                                <span>ارزش کل فروشگاهی (قیمت مصرف‌کننده)</span>
+                            </div>
+                            <div class="text-lg font-black font-mono text-emerald-950 mt-2">
+                                ${Number(totalRetailVal).toLocaleString('fa-IR')} <span class="text-xs font-normal text-emerald-700">تومان</span>
+                            </div>
+                            <div class="text-[10px] text-emerald-600 mt-1">فروش ناخالص پیش‌بینی شده</div>
+                        </div>
+
+                        <div class="p-4 bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200/80 rounded-2xl shadow-sm">
+                            <div class="text-[11px] font-bold text-amber-800 flex items-center gap-1.5">
+                                <i data-lucide="trending-up" class="w-4 h-4 text-amber-600"></i>
+                                <span>سود ناخالص بالقوه کل انبار</span>
+                            </div>
+                            <div class="text-lg font-black font-mono text-amber-950 mt-2">
+                                ${Number(totalPotentialProfit).toLocaleString('fa-IR')} <span class="text-xs font-normal text-amber-700">تومان</span>
+                            </div>
+                            <div class="text-[10px] text-amber-600 mt-1">اختلاف قیمت مصرف‌کننده و خرید</div>
+                        </div>
+
+                        <div class="p-4 bg-gradient-to-br from-blue-50 to-sky-50 border border-blue-200/80 rounded-2xl shadow-sm">
+                            <div class="text-[11px] font-bold text-blue-800 flex items-center gap-1.5">
+                                <i data-lucide="boxes" class="w-4 h-4 text-blue-600"></i>
+                                <span>تعداد کل اقلام موجود در انبار</span>
+                            </div>
+                            <div class="text-lg font-black font-mono text-blue-950 mt-2">
+                                ${Number(totalStockCount).toLocaleString('fa-IR')} <span class="text-xs font-normal text-blue-700">عدد کالا</span>
+                            </div>
+                            <div class="text-[10px] text-blue-600 mt-1">تعداد واریانت‌های انبار: ${items.length}</div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div class="overflow-x-auto">
                         <table class="w-full text-right text-xs">
                             <thead class="bg-slate-50 text-slate-500 border-b border-slate-200">
                                 <tr>

@@ -1,6 +1,7 @@
 // CRM, Customer 360, Loyalty, RFM & Wallet Service
 const db = require('../db/database');
 const { normalizeIranianMobile, formatMobileForExcel, formatMobileWithoutZero } = require('../utils/textUtils');
+const { toJalaliDateString, toJalaliFriendly, getCurrentJalaliDate, parseJalaliInputToGregorian } = require('../utils/dateUtils');
 
 const crmService = {
     // Get all customers with RFM and summary metrics
@@ -38,6 +39,10 @@ const crmService = {
         `).get(customerId);
 
         if (!customer) return null;
+
+        customer.birth_date_shamsi = toJalaliDateString(customer.birth_date);
+        customer.birth_date_friendly = toJalaliFriendly(customer.birth_date);
+        customer.membership_date_shamsi = toJalaliDateString(customer.membership_date);
 
         // Order history
         customer.orders = db.prepare(`
@@ -222,18 +227,41 @@ const crmService = {
         return { success: true, processedCount: customers.length };
     },
 
-    // Customers with Birthday in Current Month (for Promo Campaign)
+    // Customers with Birthday in Current Shamsi Month (for Promo Campaign)
     getUpcomingBirthdays() {
-        return db.prepare(`
-            SELECT 
-                id, full_name, mobile, birth_date, loyalty_tier, wallet_balance,
-                STRFTIME('%m', birth_date) AS birth_month,
-                STRFTIME('%d', birth_date) AS birth_day
+        const currentJ = getCurrentJalaliDate();
+        const currentJalaliMonth = currentJ.month;
+        const currentMonthName = currentJ.monthName;
+
+        const allWithBirth = db.prepare(`
+            SELECT id, full_name, mobile, birth_date, loyalty_tier, wallet_balance
             FROM customers
-            WHERE is_active = 1 AND birth_date IS NOT NULL
-              AND STRFTIME('%m', birth_date) = STRFTIME('%m', 'now')
-            ORDER BY birth_day ASC
+            WHERE is_active = 1 AND birth_date IS NOT NULL AND TRIM(birth_date) != ''
         `).all();
+
+        const results = [];
+        for (const c of allWithBirth) {
+            const jDate = toJalaliDateString(c.birth_date);
+            if (!jDate || !jDate.includes('/')) continue;
+            const [jy, jm, jd] = jDate.split('/').map(Number);
+            if (jm === currentJalaliMonth) {
+                results.push({
+                    id: c.id,
+                    full_name: c.full_name,
+                    mobile: c.mobile,
+                    birth_date: c.birth_date,
+                    birth_date_shamsi: jDate,
+                    birth_friendly: `${jd} ${currentMonthName} ${jy}`,
+                    birth_day: jd,
+                    birth_month: jm,
+                    birth_month_name: currentMonthName,
+                    loyalty_tier: c.loyalty_tier,
+                    wallet_balance: c.wallet_balance
+                });
+            }
+        }
+        results.sort((a, b) => a.birth_day - b.birth_day);
+        return results;
     },
 
     // Create New Customer
@@ -243,6 +271,7 @@ const crmService = {
         const existing = db.prepare(`SELECT id FROM customers WHERE mobile = ?`).get(cleanMobile);
         if (existing) throw new Error('مشتری با این شماره موبایل قبلاً ثبت شده است');
 
+        const normalizedBirthDate = parseJalaliInputToGregorian(birthDate) || birthDate || null;
         const custCode = 'CUST-' + Math.floor(10000 + Math.random() * 90000);
         const res = db.prepare(`
             INSERT INTO customers (
@@ -250,7 +279,7 @@ const crmService = {
                 birth_date, skin_type, hair_preferences, loyalty_tier, loyalty_points,
                 wallet_balance, notes, is_active
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 50, 0, ?, 1)
-        `).run(custCode, fullName.trim(), cleanMobile, email || null, birthDate || null, skinType || null, hairType || null, loyaltyTier, notes);
+        `).run(custCode, fullName.trim(), cleanMobile, email || null, normalizedBirthDate, skinType || null, hairType || null, loyaltyTier, notes);
 
         return { id: res.lastInsertRowid, customerCode: custCode };
     },
@@ -258,6 +287,7 @@ const crmService = {
     // Update Customer
     updateCustomer(id, data) {
         const { fullName, mobile, email, birthDate, skinType, hairType, loyaltyTier, notes, loyaltyPoints } = data;
+        const normalizedBirthDate = birthDate ? (parseJalaliInputToGregorian(birthDate) || birthDate) : null;
         db.prepare(`
             UPDATE customers
             SET full_name = COALESCE(?, full_name),
@@ -270,7 +300,7 @@ const crmService = {
                 loyalty_points = COALESCE(?, loyalty_points),
                 notes = COALESCE(?, notes)
             WHERE id = ?
-        `).run(fullName, mobile, email, birthDate, skinType, hairType, loyaltyTier, loyaltyPoints, notes, id);
+        `).run(fullName, mobile, email, normalizedBirthDate, skinType, hairType, loyaltyTier, loyaltyPoints, notes, id);
 
         return { success: true };
     },
@@ -432,8 +462,11 @@ const crmService = {
             // Filter: birthMonth
             if (birthMonth === 'CURRENT') {
                 if (!c.birth_date) continue;
-                const m = c.birth_date.slice(5, 7);
-                if (m !== currentMonth) continue;
+                const jDate = toJalaliDateString(c.birth_date);
+                if (!jDate || !jDate.includes('/')) continue;
+                const jm = parseInt(jDate.split('/')[1], 10);
+                const curJalaliMonth = getCurrentJalaliDate().month;
+                if (jm !== curJalaliMonth) continue;
             }
 
             // Normalize mobile
@@ -454,6 +487,8 @@ const crmService = {
             const nameParts = (c.full_name || '').trim().split(/\s+/);
             const firstName = nameParts[0] || '';
             const lastName = nameParts.slice(1).join(' ') || '';
+            const shamsiBirth = toJalaliDateString(c.birth_date);
+            const friendlyBirth = toJalaliFriendly(c.birth_date);
 
             results.push({
                 id: c.id,
@@ -471,7 +506,9 @@ const crmService = {
                 totalOrders: Number(c.total_orders_count || 0),
                 lastOrderDate: c.last_order_date || '-',
                 daysSinceLastOrder: c.days_since_last_order,
-                birthDate: c.birth_date || '-'
+                birthDate: shamsiBirth || '-',
+                birthDateFriendly: friendlyBirth || '-',
+                birthDateMiladi: c.birth_date || '-'
             });
         }
 
@@ -493,7 +530,7 @@ const crmService = {
             'پیشوند',
             'نام کامل',
             'گروه',
-            'تاریخ تولد',
+            'تاریخ تولد (شمسی)',
             'سطح مشتری',
             'سگمنت RFM',
             'مانده کیف پول (تومان)',
@@ -507,6 +544,7 @@ const crmService = {
         for (const c of contacts) {
             const excelMobile = formatMobileForExcel(c.mobile);
             const noZeroMobile = formatMobileWithoutZero(c.mobile);
+            const shamsiBirth = toJalaliDateString(c.birthDate || c.birth_date);
             const row = [
                 excelMobile,
                 `"${noZeroMobile}"`,
@@ -515,7 +553,7 @@ const crmService = {
                 `"${c.gender || 'خانم/آقا'}"`,
                 `"${(c.fullName || '').replace(/"/g, '""')}"`,
                 `"${(c.groupName || '').replace(/"/g, '""')}"`,
-                `"${c.birthDate || ''}"`,
+                `"${shamsiBirth || '-'}"`,
                 `"${c.tier || ''}"`,
                 `"${c.rfmSegment || ''}"`,
                 c.walletBalance || 0,
@@ -608,6 +646,7 @@ const crmService = {
             'نام و نام خانوادگی',
             'شماره همراه',
             'شماره بدون صفر (ویژه پنل)',
+            'تاریخ تولد (شمسی)',
             'دسته‌بندی / سگمنت',
             'سطح وفاداری',
             'مانده کیف پول (تومان)',
@@ -626,12 +665,14 @@ const crmService = {
         customers.forEach((c, idx) => {
             const excelMobile = formatMobileForExcel(c.mobile);
             const noZeroMobile = formatMobileWithoutZero(c.mobile);
+            const shamsiBirth = toJalaliDateString(c.birth_date);
             const row = [
                 idx + 1,
                 `"${(c.referral_code || c.customer_code || ('CUST-' + c.id)).replace(/"/g, '""')}"`,
                 `"${(c.full_name || '').replace(/"/g, '""')}"`,
                 excelMobile,
                 `"${noZeroMobile}"`,
+                `"${shamsiBirth || '-'}"`,
                 `"${(c.rfm_segment || 'عادی').replace(/"/g, '""')}"`,
                 `"${c.loyalty_tier || 'BRONZE'}"`,
                 Number(c.wallet_balance || 0),

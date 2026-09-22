@@ -226,85 +226,39 @@
 
     <!-- Login Screen Overlay -->
     <div id="loginOverlay" class="fixed inset-0 bg-slate-900/85 backdrop-blur-md z-[100] hidden flex items-center justify-center p-4">
-        <div class="relative bg-white rounded-3xl shadow-2xl max-w-xl w-full p-6 sm:p-8 border border-slate-200 overflow-hidden">
+        <div class="relative bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 sm:p-8 border border-slate-200 overflow-hidden">
             <!-- Header -->
             <div class="text-center mb-6">
                 <div class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-purple-600 to-pink-500 flex items-center justify-center text-white shadow-lg shadow-purple-200 mx-auto mb-3">
                     <i data-lucide="sparkles" class="w-7 h-7"></i>
                 </div>
                 <h2 class="text-xl font-extrabold text-slate-900">ورود به سامانه کیهان بیوتی</h2>
-                <p class="text-xs text-slate-500 mt-1">سامانه جامع Retail ERP لوازم آرایشی، انبارداری FEFO و حسابداری دوبل</p>
-            </div>
-
-            <!-- Role Selector Cards -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
-                <!-- Manager Card -->
-                <div onclick="app.quickLogin('manager')" class="p-4 rounded-2xl border-2 border-purple-200 bg-purple-50/50 hover:bg-purple-100/70 hover:border-purple-500 cursor-pointer transition flex flex-col justify-between group">
-                    <div>
-                        <div class="flex items-center justify-between">
-                            <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-600 text-white">دسترسی کامل</span>
-                            <i data-lucide="shield" class="w-4 h-4 text-purple-600"></i>
-                        </div>
-                        <h4 class="font-bold text-slate-900 mt-2 text-sm">ورود به عنوان «مدیر»</h4>
-                        <p class="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                            دسترسی به تمام بخش‌ها: داشبورد، حسابداری دوبل، انبار، خرید، CRM، گزارشات مالی، BI و تنظیمات کاربران.
-                        </p>
-                    </div>
-                    <button type="button" class="mt-4 w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 shadow-sm">
-                        <span>ورود مستقیم مدیر</span>
-                        <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>
-                    </button>
-                </div>
-
-                <!-- Admin Card -->
-                <div onclick="app.quickLogin('admin')" class="p-4 rounded-2xl border-2 border-blue-200 bg-blue-50/50 hover:bg-blue-100/70 hover:border-blue-500 cursor-pointer transition flex flex-col justify-between group">
-                    <div>
-                        <div class="flex items-center justify-between">
-                            <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-600 text-white">دسترسی محدود</span>
-                            <i data-lucide="user-check" class="w-4 h-4 text-blue-600"></i>
-                        </div>
-                        <h4 class="font-bold text-slate-900 mt-2 text-sm">ورود به عنوان «ادمین»</h4>
-                        <p class="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                            دسترسی ویژه به: <strong>صندوق فروش POS</strong> و <strong>CRM و باشگاه مشتریان</strong> (سایر بخش‌ها مخفی).
-                        </p>
-                    </div>
-                    <button type="button" class="mt-4 w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 shadow-sm">
-                        <span>ورود مستقیم ادمین</span>
-                        <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Divider -->
-            <div class="relative flex py-2 items-center mb-4">
-                <div class="flex-grow border-t border-slate-200"></div>
-                <span class="flex-shrink mx-3 text-slate-400 text-[11px]">یا ورود با نام کاربری و رمز</span>
-                <div class="flex-grow border-t border-slate-200"></div>
+                <p class="text-xs text-slate-500 mt-1">لطفاً جهت دسترسی، نام کاربری و رمز عبور خود را وارد نمایید</p>
             </div>
 
             <!-- Standard Form -->
-            <form onsubmit="app.handleLoginForm(event)" class="space-y-3">
+            <form onsubmit="app.handleLoginForm(event)" class="space-y-4">
                 <div id="loginErrorMessage" class="hidden p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-bold"></div>
 
                 <div>
-                    <label class="block text-[11px] font-bold text-slate-700 mb-1">نام کاربری:</label>
+                    <label class="block text-xs font-bold text-slate-700 mb-1.5">نام کاربری</label>
                     <div class="relative">
-                        <i data-lucide="user" class="w-4 h-4 absolute right-3 top-3 text-slate-400"></i>
-                        <input type="text" id="loginUsernameInput" required placeholder="manager یا admin" class="w-full pr-9 pl-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-purple-600 outline-none transition font-mono">
+                        <i data-lucide="user" class="w-4 h-4 absolute right-3.5 top-3.5 text-slate-400"></i>
+                        <input type="text" id="loginUsernameInput" required placeholder="نام کاربری" class="w-full pr-10 pl-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-purple-600 outline-none transition font-mono">
                     </div>
                 </div>
 
                 <div>
-                    <label class="block text-[11px] font-bold text-slate-700 mb-1">رمز عبور:</label>
+                    <label class="block text-xs font-bold text-slate-700 mb-1.5">رمز عبور</label>
                     <div class="relative">
-                        <i data-lucide="lock" class="w-4 h-4 absolute right-3 top-3 text-slate-400"></i>
-                        <input type="password" id="loginPasswordInput" required placeholder="رمز عبور (پیش‌فرض: 123456)" class="w-full pr-9 pl-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-purple-600 outline-none transition font-mono">
+                        <i data-lucide="lock" class="w-4 h-4 absolute right-3.5 top-3.5 text-slate-400"></i>
+                        <input type="password" id="loginPasswordInput" required placeholder="رمز عبور" class="w-full pr-10 pl-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-purple-600 outline-none transition font-mono">
                     </div>
                 </div>
 
-                <button type="submit" id="loginSubmitBtn" class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm mt-2">
+                <button type="submit" id="loginSubmitBtn" class="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md shadow-slate-200 mt-2 cursor-pointer">
                     <i data-lucide="log-in" class="w-4 h-4"></i>
-                    <span>ورود به سیستم</span>
+                    <span>ورود به سامانه</span>
                 </button>
             </form>
         </div>

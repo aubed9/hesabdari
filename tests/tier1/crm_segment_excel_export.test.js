@@ -13,8 +13,8 @@ describe('Tier 1: Customer Segmentation & Excel Export Suite', () => {
         // Seed diverse test customers
         // 1. Regular & High Basket (Champions)
         db.prepare(`
-            INSERT INTO customers (id, referral_code, full_name, mobile, loyalty_tier, wallet_balance, loyalty_points, rfm_segment, is_active)
-            VALUES (101, 'C-CHAMP', 'مشتری قهرمان ۱', '09121111111', 'VIP', 300000, 500, 'Champions', 1)
+            INSERT INTO customers (id, referral_code, full_name, mobile, loyalty_tier, wallet_balance, loyalty_points, rfm_segment, birth_date, is_active)
+            VALUES (101, 'C-CHAMP', 'مشتری قهرمان ۱', '09121111111', 'VIP', 300000, 500, 'Champions', '1992-09-12', 1)
         `).run();
 
         // 2. Regular Buyer (Loyal)
@@ -138,5 +138,38 @@ describe('Tier 1: Customer Segmentation & Excel Export Suite', () => {
         }]);
         assert.ok(farazCsv.includes('="09121111111"'), 'Faraz SMS CSV must include leading zero formula');
         assert.ok(farazCsv.includes('"9121111111"'), 'Faraz SMS CSV must include without-zero column');
+    });
+
+    it('T1-SEG-8: Converts birth dates to Shamsi Jalali format and handles Shamsi input parsing', () => {
+        const dateUtils = require('../../utils/dateUtils');
+        
+        // 1. Gregorian to Jalali conversion
+        assert.equal(dateUtils.toJalaliDateString('1992-09-12'), '1371/06/21');
+        assert.equal(dateUtils.toJalaliFriendly('1992-09-12'), '۲۱ شهریور ۱۳۷۱');
+
+        // 2. Jalali input parsing back to Gregorian (supports both Persian and English digits)
+        assert.equal(dateUtils.parseJalaliInputToGregorian('1371/06/21'), '1992-09-12');
+        assert.equal(dateUtils.parseJalaliInputToGregorian('۱۳۷۱/۰۶/۲۱'), '1992-09-12');
+
+        // 3. Segment Excel Export contains Shamsi birth date column & value
+        const exportRes = crmService.generateSegmentExcelCsv('high_basket_regular');
+        assert.ok(exportRes.csv.includes('تاریخ تولد (شمسی)'), 'CSV must include Shamsi birth date header');
+        assert.ok(exportRes.csv.includes('"1371/06/21"'), 'CSV must contain customer 101 Shamsi birth date');
+
+        // 4. Customer Profile returns Shamsi birth date and friendly format
+        const profile = crmService.getCustomerProfile(101);
+        assert.equal(profile.birth_date_shamsi, '1371/06/21');
+        assert.equal(profile.birth_date_friendly, '۲۱ شهریور ۱۳۷۱');
+
+        // 5. Faraz SMS Contacts & CSV includes Shamsi birth date
+        const farazData = crmService.getFarazSmsContacts({ tier: 'VIP' });
+        const c101 = farazData.contacts.find(c => c.id === 101);
+        assert.ok(c101, 'Customer 101 must be found in VIP filter');
+        assert.equal(c101.birthDate, '1371/06/21');
+        assert.equal(c101.birthDateFriendly, '۲۱ شهریور ۱۳۷۱');
+
+        const farazCsv = crmService.generateFarazSmsCsv(farazData.contacts);
+        assert.ok(farazCsv.includes('تاریخ تولد (شمسی)'), 'Faraz CSV must include Shamsi birth date header');
+        assert.ok(farazCsv.includes('"1371/06/21"'), 'Faraz CSV must include Shamsi birth date value');
     });
 });

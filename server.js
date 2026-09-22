@@ -53,12 +53,9 @@ app.post('/api/auth/login', (req, res) => {
             return res.status(401).json({ success: false, error: 'نام کاربری یا رمز عبور اشتباه است.' });
         }
 
-        // Validate password
+        // Validate password strictly (no default fallbacks)
         const enteredPass = String(password || '').trim();
-        const isValid = !user.password_hash || 
-                        user.password_hash === enteredPass ||
-                        enteredPass === '123456' || 
-                        enteredPass === 'password123';
+        const isValid = Boolean(user.password_hash && user.password_hash === enteredPass);
 
         if (!isValid) {
             return res.status(401).json({ success: false, error: 'نام کاربری یا رمز عبور اشتباه است.' });
@@ -566,13 +563,44 @@ app.get('/api/products', (req, res) => {
                     FROM inventory_batches ib
                     JOIN product_variants pv ON ib.product_variant_id = pv.id
                     WHERE pv.product_id = p.id
-                ) AS total_stock
+                ) AS total_stock,
+                (
+                    SELECT COALESCE(SUM(ib.quantity * pv.purchase_price), 0)
+                    FROM inventory_batches ib
+                    JOIN product_variants pv ON ib.product_variant_id = pv.id
+                    WHERE pv.product_id = p.id
+                ) AS total_cost_value,
+                (
+                    SELECT COALESCE(SUM(ib.quantity * pv.selling_price), 0)
+                    FROM inventory_batches ib
+                    JOIN product_variants pv ON ib.product_variant_id = pv.id
+                    WHERE pv.product_id = p.id
+                ) AS total_retail_value
             FROM products p
             JOIN brands b ON p.brand_id = b.id
             JOIN categories c ON p.category_id = c.id
             ORDER BY p.id DESC
         `).all();
-        res.json({ success: true, data: products });
+
+        const summary = db.prepare(`
+            SELECT 
+                COALESCE(SUM(ib.quantity), 0) AS grand_total_stock,
+                COALESCE(SUM(ib.quantity * pv.purchase_price), 0) AS grand_total_cost_value,
+                COALESCE(SUM(ib.quantity * pv.selling_price), 0) AS grand_total_retail_value,
+                (SELECT COUNT(*) FROM products WHERE is_active = 1) AS total_products_count,
+                (SELECT COUNT(*) FROM product_variants WHERE is_active = 1) AS total_variants_count
+            FROM inventory_batches ib
+            JOIN product_variants pv ON ib.product_variant_id = pv.id
+            WHERE pv.is_active = 1
+        `).get() || {
+            grand_total_stock: 0,
+            grand_total_cost_value: 0,
+            grand_total_retail_value: 0,
+            total_products_count: products.length,
+            total_variants_count: 0
+        };
+
+        res.json({ success: true, data: products, summary });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
@@ -706,11 +734,13 @@ app.get('/api/crm/customers/:id', (req, res) => {
 app.post('/api/crm/customers', (req, res) => {
     try {
         const { fullName, mobile, email, birthDate, skinType, hairPreferences } = req.body;
+        const { parseJalaliInputToGregorian } = require('./utils/dateUtils');
+        const finalBirth = birthDate ? (parseJalaliInputToGregorian(birthDate) || birthDate) : null;
         const refCode = 'REF-' + Math.floor(100000 + Math.random() * 900000);
         const result = db.prepare(`
             INSERT INTO customers (full_name, mobile, email, birth_date, skin_type, hair_preferences, referral_code)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(fullName, mobile, email || null, birthDate || null, skinType || null, hairPreferences || null, refCode);
+        `).run(fullName, mobile, email || null, finalBirth, skinType || null, hairPreferences || null, refCode);
         res.json({ success: true, data: { customerId: result.lastInsertRowid, referralCode: refCode } });
     } catch (err) {
         res.status(400).json({ success: false, error: err.message });
@@ -889,6 +919,135 @@ app.get('/api/accounting/aging', (req, res) => {
     try {
         const aging = accountingService.getAgingReport();
         res.json({ success: true, data: aging });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// Periodic Date-Range Financial & Ledger Excel Export API
+app.get('/api/accounting/export-excel', (req, res) => {
+    try {
+        const { parseJalaliInputToGregorian, toJalaliDateString } = require('./utils/dateUtils');
+        let { startDate, endDate, reportType = 'all' } = req.query;
+
+        // Convert potential Jalali inputs to Gregorian for SQL filtering
+        let startGregorian = null;
+        let endGregorian = null;
+        if (startDate && String(startDate).trim()) {
+            startGregorian = parseJalaliInputToGregorian(String(startDate).trim()) || String(startDate).trim();
+        }
+        if (endDate && String(endDate).trim()) {
+            endGregorian = parseJalaliInputToGregorian(String(endDate).trim()) || String(endDate).trim();
+        }
+
+        let csv = '\uFEFF'; // UTF-8 BOM for Microsoft Excel
+
+        if (reportType === 'expenses') {
+            let query = `
+                SELECT e.*, coa.code AS account_code, coa.name_fa AS account_name, u.full_name AS created_by_name
+                FROM expenses e
+                LEFT JOIN chart_of_accounts coa ON e.account_id = coa.id
+                LEFT JOIN users u ON e.created_by = u.id
+                WHERE 1=1
+            `;
+            const params = [];
+            if (startGregorian) {
+                query += ` AND date(e.expense_date) >= date(?)`;
+                params.push(startGregorian);
+            }
+            if (endGregorian) {
+                query += ` AND date(e.expense_date) <= date(?)`;
+                params.push(endGregorian);
+            }
+            query += ` ORDER BY e.expense_date DESC, e.id DESC`;
+            const rows = db.prepare(query).all(...params);
+
+            const headers = ['ردیف', 'کد هزینه', 'تاریخ (شمسی)', 'سرفصل حسابداری', 'کد حساب', 'مبلغ (تومان)', 'روش پرداخت', 'دریافت‌کننده', 'شرح و بابت', 'ثبت‌کننده'];
+            csv += headers.join(',') + '\r\n';
+            rows.forEach((r, idx) => {
+                const shamsiDate = toJalaliDateString(r.expense_date);
+                const row = [
+                    idx + 1,
+                    `"EXP-${r.id}"`,
+                    `"${shamsiDate}"`,
+                    `"${(r.account_name || '').replace(/"/g, '""')}"`,
+                    `"${r.account_code || ''}"`,
+                    Math.round(Number(r.amount || 0)),
+                    `"${(r.payment_method === 'CASH' ? 'نقدی (صندوق)' : r.payment_method === 'BANK' ? 'حواله/کارت بانکی' : r.payment_method || '').replace(/"/g, '""')}"`,
+                    `"${(r.payee || '').replace(/"/g, '""')}"`,
+                    `"${(r.description || '').replace(/"/g, '""')}"`,
+                    `"${(r.created_by_name || '').replace(/"/g, '""')}"`
+                ];
+                csv += row.join(',') + '\r\n';
+            });
+        } else if (reportType === 'pnl') {
+            const pnl = accountingService.getProfitAndLoss(startGregorian, endGregorian);
+            const headers = ['ردیف', 'سرفصل سود و زیان', 'شرح حساب', 'مبلغ خالص (تومان)'];
+            csv += headers.join(',') + '\r\n';
+            let idx = 1;
+            csv += `${idx++},"درآمد فروش ناخالص","فروش فروشگاهی POS",${Math.round(pnl.revenue.grossSales)}\r\n`;
+            csv += `${idx++},"تخفیفات فروش","تخفیفات اختصاص‌یافته به مشتریان",${Math.round(pnl.revenue.discounts)}\r\n`;
+            csv += `${idx++},"درآمد خالص فروش","فروش ناخالص منهای تخفیف",${Math.round(pnl.revenue.netSales)}\r\n`;
+            csv += `${idx++},"بهای تمام شده کالا (COGS)","هزینه خرید کالاهای فروش‌رفته",${Math.round(pnl.cogs.totalCOGS)}\r\n`;
+            csv += `${idx++},"سود ناخالص","فروش خالص منهای بهای تمام شده",${Math.round(pnl.grossProfit)}\r\n`;
+            csv += `${idx++},"کل هزینه‌های عملیاتی","مجموع هزینه‌های عمومی و اداری",${Math.round(pnl.expenses.totalExpenses)}\r\n`;
+            csv += `${idx++},"سود (زیان) خالص عملیاتی","سود نهایی دوره انتخابی",${Math.round(pnl.netIncome)}\r\n`;
+        } else {
+            // Default or 'all' or 'journals': Complete double-entry ledger lines
+            let query = `
+                SELECT 
+                    je.entry_number,
+                    je.date,
+                    je.reference_type,
+                    coa.code AS account_code,
+                    coa.name_fa AS account_name,
+                    jl.description,
+                    jl.debit,
+                    jl.credit,
+                    je.is_posted
+                FROM journal_lines jl
+                JOIN journal_entries je ON jl.journal_entry_id = je.id
+                JOIN chart_of_accounts coa ON jl.account_id = coa.id
+                WHERE 1=1
+            `;
+            const params = [];
+            if (startGregorian) {
+                query += ` AND date(je.date) >= date(?)`;
+                params.push(startGregorian);
+            }
+            if (endGregorian) {
+                query += ` AND date(je.date) <= date(?)`;
+                params.push(endGregorian);
+            }
+            query += ` ORDER BY je.date ASC, je.id ASC, jl.id ASC`;
+            const rows = db.prepare(query).all(...params);
+
+            const headers = ['ردیف', 'شماره سند', 'تاریخ سند (شمسی)', 'کد حساب معین', 'نام سرفصل معین', 'شرح آرتیکل سند', 'بدهکار (تومان)', 'بستانکار (تومان)', 'نوع تراکنش / مرجع', 'وضعیت سند'];
+            csv += headers.join(',') + '\r\n';
+            rows.forEach((r, idx) => {
+                const shamsiDate = toJalaliDateString(r.date);
+                const row = [
+                    idx + 1,
+                    `"${r.entry_number}"`,
+                    `"${shamsiDate}"`,
+                    `"${r.account_code}"`,
+                    `"${(r.account_name || '').replace(/"/g, '""')}"`,
+                    `"${(r.description || '').replace(/"/g, '""')}"`,
+                    Math.round(Number(r.debit || 0)),
+                    Math.round(Number(r.credit || 0)),
+                    `"${r.reference_type || 'MANUAL'}"`,
+                    `"${r.is_posted ? 'قطعی شده (ثبت دائم)' : 'پیش‌نویس'}"`
+                ];
+                csv += row.join(',') + '\r\n';
+            });
+        }
+
+        const safeStart = startDate ? String(startDate).replace(/[^\w-]/g, '_') : 'all';
+        const safeEnd = endDate ? String(endDate).replace(/[^\w-]/g, '_') : 'now';
+        const filename = `Hesabdari_${reportType}_${safeStart}_ta_${safeEnd}.csv`;
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(csv);
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
@@ -1073,16 +1232,19 @@ app.get('/api/export/:entity', (req, res) => {
             `).all();
         } else if (entity === 'customers') {
             const { normalizeIranianMobile, formatMobileForExcel, formatMobileWithoutZero } = require('./utils/textUtils');
+            const { toJalaliDateString } = require('./utils/dateUtils');
             const custs = crmService.getCustomers();
             rows = custs.map((c, idx) => {
                 const excelMobile = formatMobileForExcel(c.mobile);
                 const noZeroMobile = formatMobileWithoutZero(c.mobile);
+                const shamsiBirth = toJalaliDateString(c.birth_date);
                 return {
                     'ردیف': idx + 1,
                     'کد اشتراک': c.referral_code || c.customer_code || ('CUST-' + c.id),
                     'نام و نام خانوادگی': c.full_name || '',
                     'شماره همراه': excelMobile,
                     'شماره بدون صفر (ویژه پنل)': noZeroMobile,
+                    'تاریخ تولد (شمسی)': shamsiBirth || '-',
                     'دسته‌بندی': c.rfm_segment || 'عادی',
                     'سطح وفاداری': c.loyalty_tier || 'BRONZE',
                     'کیف پول (تومان)': c.wallet_balance || 0,
